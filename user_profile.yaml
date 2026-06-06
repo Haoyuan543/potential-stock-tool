@@ -1,0 +1,32 @@
+user:
+  tax_rate: 0.20
+  investment_style: value_investing
+  risk_tolerance: medium
+  dividend_tax_sensitive: true
+  avoid_full_exit: true
+
+positions:
+  - symbol: "2603.TW"
+    name: "長榮海運"
+    lots: 30
+    shares: 30000
+    average_cost: 192
+    core_lots: 20
+    flexible_lots: 10
+
+strategy:
+  target_sell_zones:
+    - price_range: [245, 250]
+      action: "consider_sell"
+      suggested_lots: [2, 3]
+    - price_range: [255, 260]
+      action: "consider_sell"
+      suggested_lots: [3, 5]
+    - price_range: [270, 280]
+      action: "re_evaluate"
+      suggested_lots: [3, 5]
+  buyback_zones:
+    - price_range: [220, 230]
+      action: "consider_buyback"
+    - price_range: [200, 220]
+      action: "strong_buyback_watch"

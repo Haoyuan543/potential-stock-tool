@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>即時 AI 投資分析工具</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <section class="tool-panel">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">即時 AI 投資研究員</p>
+          <h1>即時 AI 投資分析工具</h1>
+          <p>輸入股票代號後按下「立即分析」，系統才會抓取最新資料並交給 AI 分析。不自動下單，不自動通知。</p>
+        </div>
+        <div id="apiStatus" class="status-pill">檢查服務中...</div>
+      </header>
+
+      <section id="modeNotice" class="notice hidden"></section>
+
+      <section class="controls">
+        <label>股票代號
+          <input id="symbolInput" value="2603.TW" placeholder="例如 2603.TW">
+        </label>
+        <label>分析模式
+          <select id="modeInput">
+            <option value="personalized" selected>個人化模式</option>
+            <option value="general">一般模式</option>
+          </select>
+        </label>
+        <label>模型
+          <select id="modelInput">
+            <option value="">使用 .env 預設模型</option>
+            <option value="gpt-5.5">gpt-5.5：完整分析</option>
+            <option value="gpt-5.5-pro">gpt-5.5-pro：深度分析</option>
+            <option value="gpt-5">gpt-5：快速分析</option>
+          </select>
+        </label>
+        <button id="analyzeButton" type="button">立即分析</button>
+      </section>
+
+      <details class="advanced-panel">
+        <summary>進階資料補充區</summary>
+        <p class="advanced-note">系統會優先自動抓資料。這裡只用於補充無法穩定取得的航運數字，或你希望 AI 一起判斷的事件。</p>
+        <section class="manual-grid">
+          <label>SCFI 最新值<input id="scfiLatest" inputmode="decimal" placeholder="可留空"></label>
+          <label>SCFI 週變化 %<input id="scfiWeeklyChange" inputmode="decimal" placeholder="可留空"></label>
+          <label>SCFI 連續上漲/下跌週數<input id="scfiStreakWeeks" inputmode="decimal" placeholder="可留空"></label>
+          <label>美西線運價<input id="usWestRate" inputmode="decimal" placeholder="可留空"></label>
+          <label>美東線運價<input id="usEastRate" inputmode="decimal" placeholder="可留空"></label>
+          <label>歐洲線運價<input id="europeRate" inputmode="decimal" placeholder="可留空"></label>
+          <label>美西線週變化 %<input id="usWestWeeklyChange" inputmode="decimal" placeholder="可留空"></label>
+          <label>美東線週變化 %<input id="usEastWeeklyChange" inputmode="decimal" placeholder="可留空"></label>
+          <label>歐洲線週變化 %<input id="europeWeeklyChange" inputmode="decimal" placeholder="可留空"></label>
+          <label>紅海狀態<input id="redSeaStatus" placeholder="例如：緊張 / 改善 / 正常化"></label>
+          <label class="wide-field">人工補充脈絡<textarea id="manualContext" placeholder="公司公告、法說重點、新聞摘要或你想讓 AI 一起判斷的資料"></textarea></label>
+        </section>
+      </details>
+
+      <section id="loadingBox" class="loading hidden">
+        <div class="spinner"></div>
+        <span>分析中，已花費 <strong id="elapsedTimer">0.0</strong> 秒</span>
+      </section>
+
+      <section class="summary-grid">
+        <article><span>股價資料</span><strong id="stockStatus">--</strong></article>
+        <article><span>法人籌碼</span><strong id="institutionalStatus">--</strong></article>
+        <article><span>航運運價</span><strong id="freightStatus">--</strong></article>
+        <article><span>新聞事件</span><strong id="newsStatus">--</strong></article>
+      </section>
+
+      <section id="summaryPanel" class="summary-panel hidden">
+        <div class="card-header"><h2>重點總結</h2></div>
+        <div id="summaryOutput" class="summary-output"></div>
+      </section>
+
+      <section id="freshnessPanel" class="summary-panel hidden">
+        <div class="card-header"><h2>資料新鮮度</h2></div>
+        <div id="freshnessOutput" class="summary-output"></div>
+      </section>
+
+      <section class="output-grid">
+        <article class="report-card">
+          <div class="card-header">
+            <h2>AI 分析報告</h2>
+            <div class="report-actions">
+              <button id="copyButton" type="button">複製報告</button>
+              <button id="downloadHtmlButton" type="button" disabled>下載 HTML</button>
+            </div>
+          </div>
+          <div id="reportOutput" class="markdown-output">
+            <p class="empty-state">尚未開始分析。</p>
+          </div>
+        </article>
+
+        <aside class="side-panel">
+          <section>
+            <h2>分析紀錄</h2>
+            <ul id="historyList"><li>尚無紀錄。</li></ul>
+          </section>
+          <section>
+            <h2>資料缺漏</h2>
+            <ul id="missingList"><li>尚未開始分析。</li></ul>
+          </section>
+          <section>
+            <h2>資料限制</h2>
+            <ul id="limitationsList"><li>尚未開始分析。</li></ul>
+          </section>
+          <section>
+            <h2>資料品質分層</h2>
+            <div id="dataQualityList" class="quality-list">尚未開始分析。</div>
+          </section>
+          <section>
+            <h2>缺漏原因</h2>
+            <ul id="missingReasonList"><li>尚未開始分析。</li></ul>
+          </section>
+          <section>
+            <h2>資料來源</h2>
+            <ul id="sourceList"><li>尚未開始分析。</li></ul>
+          </section>
+        </aside>
+      </section>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
