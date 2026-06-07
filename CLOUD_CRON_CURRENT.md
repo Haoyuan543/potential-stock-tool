@@ -1,63 +1,60 @@
 # 雲端排程目前設定
 
-更新日：2026-06-07
+更新日期：2026-06-07
 
-## 使用方式
+## 目前策略
 
-1. 到雲端面板設定股票池、模擬資金、風險偏好、持股上限等欄位。
-2. 按「儲存設定」。
-3. cron-job.org 的排程網址預設會讀目前資料來源裡最後儲存的設定。雲端使用 Supabase 時，就會讀 Supabase 的設定資料。
+分析端點已會自動呼叫 Research Collector 補資料。也就是說，cron-job.org 不需要再另外排 08:05、10:00、20:00 三條資料蒐集工作；只要打三個主要分析流程即可。
 
-## 正式排程 URL
+Research Collector 仍保留為獨立端點，用途是手動預熱、除錯、或未來想額外建立資料倉儲時使用。
 
-```text
-https://YOUR_DOMAIN/api/cron/potential-stocks?session=pre_market&background=true&token=YOUR_SECRET
-https://YOUR_DOMAIN/api/cron/potential-stocks?session=market_hours&background=true&token=YOUR_SECRET
-https://YOUR_DOMAIN/api/cron/potential-stocks?session=post_market&background=true&token=YOUR_SECRET
-```
-
-`YOUR_SECRET` 換成 Render 裡的 `CRON_JOB_SECRET`。
-
-## 執行順序
-
-- `pre_market` 可以先執行。
-- `market_hours` 必須同一天已完成 `pre_market`，否則回傳 `skipped=true`，不會亂做盤中交易。
-- `post_market` 必須同一天已完成 `market_hours`，否則回傳 `skipped=true`，不會跳過盤中直接結算。
-
-## 參數覆蓋
-
-排程預設使用資料庫儲存設定，也就是：
+## 建議 cron-job.org 排程
 
 ```text
-use_saved_settings=true
-```
-
-如果臨時要完全改用 URL 參數，才加：
-
-```text
-use_saved_settings=false
-```
-
-正式使用時建議不要把股票池、資金、持股上限塞在 URL，直接用面板「儲存設定」管理即可。
-## Research Collector 先行資料排程
-
-新版建議先讓 non-AI collector 抓資料，再讓分析流程讀取已整理好的資料包。這樣比較省 OpenAI token，也比較不會在盤前分析時才遇到資料來源 timeout。
-
-建議 cron-job.org 順序：
-
-```text
-08:05  https://YOUR_DOMAIN/api/cron/research-collector?background=true&token=YOUR_SECRET
 08:30  https://YOUR_DOMAIN/api/cron/potential-stocks?session=pre_market&background=true&token=YOUR_SECRET
-10:00  https://YOUR_DOMAIN/api/cron/research-collector?background=true&token=YOUR_SECRET
 10:05  https://YOUR_DOMAIN/api/cron/potential-stocks?session=market_hours&background=true&token=YOUR_SECRET
-20:00  https://YOUR_DOMAIN/api/cron/research-collector?background=true&token=YOUR_SECRET
 20:10  https://YOUR_DOMAIN/api/cron/potential-stocks?session=post_market&background=true&token=YOUR_SECRET
 ```
 
-Collector 預設會讀取面板儲存的股票池與設定，所以 URL 通常不用再帶 symbols。要檢查資料倉儲狀態可看：
+`YOUR_SECRET` 請填 Render 環境變數 `CRON_JOB_SECRET` 的值。不要把 token 貼到公開文件或 GitHub。
+
+## 執行順序保護
+
+- `pre_market`：產生盤前計畫與候選股排序。
+- `market_hours`：必須同一天已經有 `pre_market`，才會執行盤中模擬交易。
+- `post_market`：必須同一天已經有 `market_hours`，才會執行盤後結算。
+
+如果順序不符合，API 會回傳 `skipped=true`，不會硬寫錯誤資料。
+
+## 資料蒐集邏輯
+
+每次執行主要分析端點時，後端會先檢查 Supabase 或本機 research bundle：
+
+1. 股票資料 4 小時內有效。
+2. 美股科技/半導體領先資料 12 小時內有效。
+3. 如果快取缺漏或過期，分析流程會先呼叫 non-AI collector 補資料。
+4. collector 仍抓不到時，才退回直接即時抓取或保守估算。
+
+這樣可以減少 cron-job.org 定時器數量，也能避免每次分析都從零開始抓資料。
+
+## 可選手動端點
+
+手動刷新資料：
+
+```text
+https://YOUR_DOMAIN/api/cron/research-collector?background=true&token=YOUR_SECRET
+```
+
+查看資料包狀態：
 
 ```text
 https://YOUR_DOMAIN/api/research-collector/status
 ```
 
-目前 collector 不使用 OpenAI API；它只負責抓資料、標準化、存進本機或 Supabase，分析工具再讀取這些資料包。
+## cron-job.org 注意事項
+
+- Method 用 `GET` 即可。
+- Request body 留空。
+- Timeout 建議 30 秒。
+- `background=true` 必須保留，避免 cron-job.org 因輸出太大或執行太久判定失敗。
+- 建議打開 job history，但不要開啟 save full response，避免保存過長回應。

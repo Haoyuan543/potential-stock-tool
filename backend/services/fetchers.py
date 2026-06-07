@@ -9,6 +9,31 @@ from backend.models import DataPoint, MarketDataset, PriceBar
 
 
 class MarketDataFetcher:
+    STOCK_NAMES = {
+        "2330": "台積電",
+        "2454": "聯發科",
+        "2303": "聯電",
+        "2379": "瑞昱",
+        "3034": "聯詠",
+        "3711": "日月光投控",
+        "3443": "創意",
+        "3661": "世芯-KY",
+        "2317": "鴻海",
+        "2382": "廣達",
+        "3231": "緯創",
+        "2356": "英業達",
+        "6669": "緯穎",
+        "3017": "奇鋐",
+        "2308": "台達電",
+        "4938": "和碩",
+        "2603": "長榮",
+        "2609": "陽明",
+        "2615": "萬海",
+        "2881": "富邦金",
+        "2882": "國泰金",
+        "2891": "中信金",
+    }
+
     def __init__(self) -> None:
         self.settings = get_settings()
 
@@ -168,8 +193,7 @@ class MarketDataFetcher:
     async def fetch_news(self, client: httpx.AsyncClient, ticker: str) -> list[DataPoint]:
         if not self.settings.news_api_key:
             return [DataPoint(source="NewsAPI", name="news", missing=True, note="Data Missing: NEWS_API_KEY not configured.")]
-        query = f"{ticker} 長榮 海運 OR Evergreen Marine"
-        params = {"q": query, "language": "zh", "sortBy": "publishedAt", "apiKey": self.settings.news_api_key}
+        params = {"q": self._news_query(ticker), "language": "zh", "sortBy": "publishedAt", "pageSize": 20, "apiKey": self.settings.news_api_key}
         try:
             response = await client.get("https://newsapi.org/v2/everything", params=params)
             response.raise_for_status()
@@ -186,6 +210,26 @@ class MarketDataFetcher:
             )
             for article in articles
         ]
+
+    def _news_query(self, ticker: str) -> str:
+        stock_id = str(ticker).split(".")[0].upper()
+        stock_name = self.STOCK_NAMES.get(stock_id, stock_id)
+        themes = [
+            "營收",
+            "法說",
+            "訂單",
+            "展望",
+            "產能",
+            "AI",
+            "半導體",
+            "伺服器",
+            "外資",
+            "買超",
+            "outlook",
+            "guidance",
+            "upgrade",
+        ]
+        return f'("{stock_id}" OR "{stock_name}") AND ({" OR ".join(themes)})'
 
     async def _finmind_get(self, client: httpx.AsyncClient, params: dict[str, Any]) -> list[dict[str, Any]]:
         try:

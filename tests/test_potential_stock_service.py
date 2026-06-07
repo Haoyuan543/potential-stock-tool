@@ -15,7 +15,7 @@ from backend.main import app
 from backend.models import DataPoint, MarketDataset, PotentialBacktestRequest, PotentialStockRequest, PriceBar
 from backend.services.potential_stock_cron import PotentialStockCronRunner
 from backend.services.potential_stock_service import PotentialStockService
-from backend.services.research_collector import ResearchCollectorService
+from backend.services.research_collector import ResearchCollectRequest, ResearchCollectorService
 
 
 TW_TEST_TZ = timezone(timedelta(hours=8))
@@ -245,8 +245,14 @@ class PotentialStockServiceTest(unittest.TestCase):
             def latest_dataset(self, symbol, max_age_minutes=240):
                 return dataset if symbol == "2330.TW" else None
 
+            def latest_datasets(self, symbols, max_age_minutes=240):
+                return [dataset], []
+
             def latest_us_tech_context(self, max_age_minutes=720):
                 return None
+
+            async def collect(self, request):
+                raise AssertionError("collector should not refresh when research cache is available")
 
         async def fail_collect(_symbol):
             raise AssertionError("live fetch should not run when research cache is available")
@@ -258,6 +264,51 @@ class PotentialStockServiceTest(unittest.TestCase):
 
         self.assertEqual(report.analyses[0].symbol, "2330.TW")
         self.assertGreaterEqual(report.analyses[0].score, 60)
+
+    def test_potential_stock_service_auto_refreshes_research_cache_before_live_fetch(self) -> None:
+        request = PotentialStockRequest(symbols=["2330.TW"], use_live_data=True, persist=False, use_us_tech_leading=False)
+        dataset = self._strong_dataset("2330")
+        dataset.ticker = "2330.TW"
+
+        class CollectingCollector:
+            def __init__(self):
+                self.datasets = {}
+                self.collect_count = 0
+
+            def latest_dataset(self, symbol, max_age_minutes=240):
+                return self.datasets.get(symbol)
+
+            def latest_datasets(self, symbols, max_age_minutes=240):
+                present = [self.datasets[symbol] for symbol in symbols if symbol in self.datasets]
+                missing = [symbol for symbol in symbols if symbol not in self.datasets]
+                return present, missing
+
+            def latest_us_tech_context(self, max_age_minutes=720):
+                return None
+
+            async def collect(self, collect_request: ResearchCollectRequest):
+                self.collect_count += 1
+                for symbol in collect_request.symbols:
+                    self.datasets[symbol] = dataset
+                return {"ok": True, "collected_count": len(collect_request.symbols)}
+
+        async def fail_collect(_symbol):
+            raise AssertionError("direct live fetch should not run after collector refresh")
+
+        collector = CollectingCollector()
+        self.service.research_collector = collector
+        self.service.fetcher.collect = fail_collect
+
+        report = asyncio.run(self.service.run(request))
+
+        self.assertEqual(collector.collect_count, 1)
+        self.assertEqual(report.analyses[0].symbol, "2330.TW")
+
+    def test_potential_stock_analysis_reports_data_coverage_summary(self) -> None:
+        request = PotentialStockRequest(symbols=["2330.TW"], use_live_data=False, persist=False)
+        analysis = self.service._analyze_dataset(self._strong_dataset("2330"), request)
+
+        self.assertTrue(any("資料覆蓋" in item and "資料品質" in item for item in analysis.operating_summary))
 
     def test_auto_report_session_resolves_by_taiwan_market_time(self) -> None:
         self.assertEqual(self.service._resolve_report_session("auto", datetime(2026, 6, 5, 8, 30, tzinfo=TW_TEST_TZ)), "pre_market")
@@ -435,9 +486,26 @@ class PotentialStockServiceTest(unittest.TestCase):
             potential_stock_module.potential_stock_ledger_store = ledger_store
             service = PotentialStockService()
             async def fake_collect(ticker):
-                return self._strong_dataset(ticker)
+                dataset = self._strong_dataset(ticker)
+                for index, bar in enumerate(dataset.price):
+                    bar.open = 100 + index * 0.2
+                    bar.high = bar.open + 2
+                    bar.low = bar.open - 2
+                    bar.close = bar.open + 1
+                return dataset
 
             service.fetcher.collect = fake_collect
+            class NoCacheCollector:
+                def latest_dataset(self, symbol, max_age_minutes=240):
+                    return None
+
+                def latest_us_tech_context(self, max_age_minutes=720):
+                    return None
+
+                async def collect(self, request):
+                    return {"ok": True, "collected_count": 0}
+
+            service.research_collector = NoCacheCollector()
 
             first = asyncio.run(service.run(PotentialStockRequest(symbols=["2330.TW"], report_session="market_hours", buy_score=60, use_live_data=True, persist=True)))
             second = asyncio.run(service.run(PotentialStockRequest(symbols=["2330.TW"], report_session="market_hours", buy_score=60, use_live_data=True, persist=True)))

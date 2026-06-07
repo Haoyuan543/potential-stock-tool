@@ -19,7 +19,7 @@ from backend.models import (
 )
 from backend.services.fetchers import MarketDataFetcher
 from backend.services.openai_service import OpenAIResearchService
-from backend.services.research_collector import ResearchCollectorService
+from backend.services.research_collector import ResearchCollectRequest, ResearchCollectorService
 from backend.services.storage import (
     potential_stock_case_store,
     potential_stock_ledger_store,
@@ -81,6 +81,7 @@ class PotentialStockService:
         self.fetcher = MarketDataFetcher()
         self.ai = OpenAIResearchService()
         self.research_collector = ResearchCollectorService()
+        self.research_collector.fetcher = self.fetcher
 
     def active_case_id(self) -> str:
         rows = potential_stock_case_store.all()
@@ -242,7 +243,7 @@ class PotentialStockService:
 
         symbols = self._symbols_for_request(request)
         if request.use_live_data:
-            datasets = await self._datasets_for_symbols(symbols)
+            datasets = await self._datasets_for_symbols(symbols, include_us_tech=request.use_us_tech_leading)
         else:
             datasets = [MarketDataset(ticker=symbol, limitations=["Data Missing: live data disabled for this run."]) for symbol in symbols]
 
@@ -291,11 +292,29 @@ class PotentialStockService:
                 self.save_ledger(report, request, case_id=case_id)
         return report
 
-    async def _datasets_for_symbols(self, symbols: list[str]) -> list[MarketDataset]:
-        datasets: list[MarketDataset] = []
-        for symbol in symbols:
+    async def _datasets_for_symbols(self, symbols: list[str], include_us_tech: bool = False) -> list[MarketDataset]:
+        normalized = self._normalize_symbols(symbols)
+        missing: list[str] = []
+        for symbol in normalized:
             cached = self.research_collector.latest_dataset(symbol, max_age_minutes=240)
-            if cached:
+            if not cached or self._data_score(cached) < 70:
+                missing.append(symbol)
+        needs_us_tech = include_us_tech and self.research_collector.latest_us_tech_context(max_age_minutes=720) is None
+        if missing or needs_us_tech:
+            try:
+                await self.research_collector.collect(
+                    ResearchCollectRequest(
+                        symbols=missing,
+                        include_us_tech=needs_us_tech,
+                        max_symbols=max(1, len(missing)),
+                    )
+                )
+            except Exception:
+                pass
+        datasets: list[MarketDataset] = []
+        for symbol in normalized:
+            cached = self.research_collector.latest_dataset(symbol, max_age_minutes=240)
+            if cached and self._data_score(cached) >= 70:
                 datasets.append(cached)
                 continue
             dataset = await self.fetcher.collect(self._finmind_symbol(symbol))
@@ -1306,6 +1325,7 @@ class PotentialStockService:
         institutional_score, institutional_summary = self._institutional(dataset)
         news_score, related_news, news_risks = self._news(dataset)
         data_score = self._data_score(dataset)
+        data_quality_summary = self._data_quality_summary(dataset, data_score)
         component_scores = {
             "technical": technical_score,
             "fundamental": fundamental_score,
@@ -1341,7 +1361,7 @@ class PotentialStockService:
             fundamental_summary=fundamental_summary,
             institutional_summary=institutional_summary,
             technical_summary=technical_summary,
-            operating_summary=[*operating_summary, *smart_money_summary],
+            operating_summary=[*operating_summary, *smart_money_summary, *data_quality_summary],
             us_market_summary=us_summary if request.use_us_tech_leading else [],
             advantages=advantages,
             risks=risks,
@@ -1545,6 +1565,20 @@ class PotentialStockService:
         score -= 10 if not dataset.news or all(point.missing for point in dataset.news) else 0
         score -= min(25, len(dataset.limitations) * 6)
         return int(max(0, min(100, score)))
+
+    def _data_quality_summary(self, dataset: MarketDataset, data_score: int) -> list[str]:
+        news_rows = len([point for point in dataset.news if not point.missing])
+        coverage = (
+            f"資料覆蓋：股價 {len(dataset.price)} 筆、法人 {len(dataset.institutional)} 筆、"
+            f"基本面 {len(dataset.fundamentals)} 筆、新聞 {news_rows} 則，資料品質 {data_score}/100。"
+        )
+        if data_score >= 75:
+            judgement = "資料品質足夠支撐本次排序；仍需用盤中成交價驗證預估買賣是否合理。"
+        elif data_score >= 55:
+            judgement = "資料品質中等，分數可作候選排序，但部位應依資料缺口與價格確認降低。"
+        else:
+            judgement = "資料品質偏弱，本次以觀察為主；若要交易，需要先補足價格、籌碼、基本面或事件資料。"
+        return [coverage, judgement]
 
     def _friendly_data_message(self, value: object) -> str:
         text = str(value or "").strip()

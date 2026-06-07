@@ -128,7 +128,7 @@ def main() -> None:
 
     health = client.get("/health")
     assert health.status_code == 200
-    assert health.json()["backend_version"] == "potential-20260607-research-collector-v1"
+    assert health.json()["backend_version"] == "potential-20260607-auto-research-v1"
     assert health.json()["storage"]["backend"] in {"local", "supabase"}
 
     storage_status = client.get("/api/storage/status")
@@ -172,6 +172,12 @@ def main() -> None:
     service_py = (ROOT / "backend" / "services" / "potential_stock_service.py").read_text(encoding="utf-8")
     assert "今日不交易" in service_py
     assert "_should_plan_trade_today" in service_py
+    assert "ResearchCollectRequest" in service_py
+    assert "資料覆蓋" in service_py
+
+    fetchers_py = (ROOT / "backend" / "services" / "fetchers.py").read_text(encoding="utf-8")
+    assert "_news_query" in fetchers_py
+    assert "pageSize" in fetchers_py
 
     scan = client.post(
         "/api/potential-stocks",
