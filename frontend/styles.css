@@ -22,6 +22,7 @@ body {
   background: var(--bg);
   font-family: "Microsoft JhengHei", "Noto Sans TC", Arial, sans-serif;
   overflow-x: hidden;
+  overflow-y: auto;
 }
 
 button, input, select, textarea {
@@ -692,8 +693,10 @@ button:disabled {
 
 .table-scroll {
   width: 100%;
-  overflow-x: visible;
-  overflow-y: hidden;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+  overscroll-behavior-x: contain;
 }
 
 .daily-overview-scroll {
@@ -928,7 +931,10 @@ button:disabled {
 }
 
 .daily-table-wrap {
-  overflow-x: visible;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+  overscroll-behavior-x: contain;
   padding: 14px;
 }
 
@@ -1135,10 +1141,10 @@ body {
 }
 
 .workbench-side {
-  position: sticky;
-  top: 116px;
+  position: static;
   width: 100%;
   max-width: 100%;
+  align-self: start;
 }
 
 .research-layout {

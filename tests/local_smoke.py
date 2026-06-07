@@ -39,7 +39,7 @@ def main() -> None:
         "switchStorageButton",
         "storageStatus",
         "納入前一晚美股科技 / 半導體領先因子",
-        "potential-20260607-pro-workbench-v3",
+        "potential-20260607-scroll-fix-v1",
     ]:
         assert marker in home.text
 
@@ -62,7 +62,7 @@ def main() -> None:
         assert marker in home.text
     assert home.text.index('id="dailyOutput"') < home.text.index('id="rankingOutput"')
     for marker in [
-        'APP_VERSION = "potential-20260607-pro-workbench-v3"',
+        'APP_VERSION = "potential-20260607-scroll-fix-v1"',
         "loadCloudSettings",
         "saveSettingsToCloud",
         "/api/potential-stocks/settings",
