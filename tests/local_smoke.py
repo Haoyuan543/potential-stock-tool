@@ -141,6 +141,8 @@ def main() -> None:
     assert "dashboard_basic_auth" in main_py
     assert "/api/storage/backend" in main_py
     assert "send_potential_stock_report_email" in main_py
+    assert "BackgroundTasks" in main_py
+    assert "_run_potential_stock_cron_background" in main_py
     storage_py = (ROOT / "backend" / "services" / "storage.py").read_text(encoding="utf-8")
     assert "SupabaseJsonStore" in storage_py
     assert "StoreProxy" in storage_py

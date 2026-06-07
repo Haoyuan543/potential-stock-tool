@@ -6,7 +6,7 @@ from hmac import compare_digest
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI
+from fastapi import BackgroundTasks, FastAPI
 from fastapi import Header, HTTPException, Query
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -122,6 +122,7 @@ class StorageBackendSwitchRequest(BaseModel):
 class CronPotentialStockRequest(PotentialStockRequest):
     token: str = ""
     send_email: bool | None = None
+    background: bool = False
 
 
 def _authorize_cron(token: str = "", header_token: str = "") -> None:
@@ -159,6 +160,20 @@ def _cron_response(report_session: str, report: object, email_result: dict | Non
         "data_limitations": getattr(report, "data_limitations", []),
         "markdown": getattr(report, "markdown", ""),
     }
+
+
+async def _execute_potential_stock_cron(request: PotentialStockRequest, report_session: str, send_email: bool | None = None) -> dict:
+    report = await potential_stock_service.run(request)
+    should_send_email = get_settings().send_cron_email if send_email is None else send_email
+    email_result = send_potential_stock_report_email(report_session, report) if should_send_email else {"sent": False, "reason": "send_email=false"}
+    return _cron_response(report_session, report, email_result)
+
+
+async def _run_potential_stock_cron_background(request: PotentialStockRequest, report_session: str, send_email: bool | None = None) -> None:
+    try:
+        await _execute_potential_stock_cron(request, report_session, send_email)
+    except Exception as exc:  # noqa: BLE001
+        print(f"Background potential-stock cron failed for {report_session}: {exc}")
 
 
 @app.get("/")
@@ -338,6 +353,7 @@ async def potential_stock_delete_case(case_id: str, request: Request, token: str
 
 @app.get("/api/cron/potential-stocks")
 async def cron_potential_stocks(
+    background_tasks: BackgroundTasks,
     session: Literal["pre_market", "market_hours", "post_market"] = Query("pre_market"),
     token: str = Query(""),
     x_cron_token: str = Header(default=""),
@@ -353,6 +369,7 @@ async def cron_potential_stocks(
     use_live_data: bool = Query(True),
     use_us_tech_leading: bool = Query(True),
     send_email: bool | None = Query(None),
+    background: bool = Query(False),
 ) -> dict:
     _authorize_cron(token, x_cron_token)
     request = PotentialStockRequest(
@@ -369,20 +386,20 @@ async def cron_potential_stocks(
         use_us_tech_leading=use_us_tech_leading,
         persist=persist,
     )
-    report = await potential_stock_service.run(request)
-    should_send_email = get_settings().send_cron_email if send_email is None else send_email
-    email_result = send_potential_stock_report_email(session, report) if should_send_email else {"sent": False, "reason": "send_email=false"}
-    return _cron_response(session, report, email_result)
+    if background:
+        background_tasks.add_task(_run_potential_stock_cron_background, request, session, send_email)
+        return {"ok": True, "accepted": True, "background": True, "report_session": session}
+    return await _execute_potential_stock_cron(request, session, send_email)
 
 
 @app.post("/api/cron/potential-stocks")
-async def cron_potential_stocks_post(request: CronPotentialStockRequest, x_cron_token: str = Header(default="")) -> dict:
+async def cron_potential_stocks_post(request: CronPotentialStockRequest, background_tasks: BackgroundTasks, x_cron_token: str = Header(default="")) -> dict:
     _authorize_cron(request.token, x_cron_token)
-    safe_request = request.model_copy(update={"token": ""})
-    report = await potential_stock_service.run(safe_request)
-    should_send_email = get_settings().send_cron_email if request.send_email is None else request.send_email
-    email_result = send_potential_stock_report_email(safe_request.report_session, report) if should_send_email else {"sent": False, "reason": "send_email=false"}
-    return _cron_response(safe_request.report_session, report, email_result)
+    safe_request = request.model_copy(update={"token": "", "background": False})
+    if request.background:
+        background_tasks.add_task(_run_potential_stock_cron_background, safe_request, safe_request.report_session, request.send_email)
+        return {"ok": True, "accepted": True, "background": True, "report_session": safe_request.report_session}
+    return await _execute_potential_stock_cron(safe_request, safe_request.report_session, request.send_email)
 
 
 app.mount("/static", StaticFiles(directory=str(FRONTEND)), name="static")

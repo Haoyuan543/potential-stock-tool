@@ -1033,6 +1033,36 @@ class PotentialStockApiTest(unittest.TestCase):
                 os.environ["CRON_JOB_SECRET"] = old_secret
             get_settings.cache_clear()
 
+    def test_cron_endpoint_can_accept_background_run(self) -> None:
+        old_secret = os.environ.get("CRON_JOB_SECRET")
+        os.environ["CRON_JOB_SECRET"] = "unit-test-secret"
+        get_settings.cache_clear()
+        try:
+            client = TestClient(app)
+            response = client.get(
+                "/api/cron/potential-stocks",
+                params={
+                    "session": "market_hours",
+                    "persist": "false",
+                    "use_live_data": "false",
+                    "send_email": "false",
+                    "background": "true",
+                    "token": "unit-test-secret",
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertTrue(payload["ok"])
+            self.assertTrue(payload["accepted"])
+            self.assertTrue(payload["background"])
+            self.assertEqual(payload["report_session"], "market_hours")
+        finally:
+            if old_secret is None:
+                os.environ.pop("CRON_JOB_SECRET", None)
+            else:
+                os.environ["CRON_JOB_SECRET"] = old_secret
+            get_settings.cache_clear()
+
     def test_dashboard_basic_auth_validator_accepts_only_matching_credentials(self) -> None:
         import base64
 
