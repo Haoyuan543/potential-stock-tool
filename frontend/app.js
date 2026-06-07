@@ -90,8 +90,8 @@ intradayButton.addEventListener("click", () => runPotentialStocks("market_hours"
 postMarketButton.addEventListener("click", () => runPotentialStocks("post_market"));
 branchSummaryButton.addEventListener("click", () => loadBranchSummary(selectedCaseId || activeCaseId));
 resetCaseButton.addEventListener("click", resetCase);
-saveSettingsButton.addEventListener("click", saveSettingsToCloud);
-resetSettingsButton.addEventListener("click", resetSettingsToDefault);
+saveSettingsButton.addEventListener("click", saveSettingsToCloudV2);
+resetSettingsButton.addEventListener("click", resetSettingsToDefaultV2);
 if (switchStorageButton) switchStorageButton.addEventListener("click", switchStorageBackend);
 downloadButton.addEventListener("click", downloadMarkdown);
 copyButton.addEventListener("click", async () => {
@@ -437,6 +437,52 @@ function applySavedSettings() {
   applySettings(settings, { includeCapital: !capitalInput.disabled });
 }
 
+async function saveSettingsToCloudV2() {
+  try {
+    syncSymbolsFromUniverseSelection();
+    await persistCurrentSettings();
+    showNotice("設定已儲存；雲端排程會讀取這份設定。", "ok");
+    showActionStatus("設定已儲存到目前資料來源。", "ok");
+  } catch (error) {
+    showNotice(`設定儲存失敗：${error.message}`, "missing");
+    showActionStatus(`設定儲存失敗：${friendlyError(error.message)}`, "missing");
+  }
+}
+
+async function resetSettingsToDefaultV2() {
+  try {
+    window.localStorage.removeItem(SETTINGS_KEY);
+  } catch {
+    // localStorage may be unavailable in private or restricted browser contexts.
+  }
+  applySettings(DEFAULT_SETTINGS, { includeCapital: !capitalInput.disabled });
+  syncSymbolsFromUniverseSelection();
+  try {
+    await persistCurrentSettings();
+    showNotice(capitalInput.disabled ? "已回到預設設定；資金欄位因目前案件已鎖定，需建立新支線後才能調整。" : "已回到預設設定並儲存。", "ok");
+    showActionStatus("預設設定已儲存到目前資料來源。", "ok");
+  } catch (error) {
+    showNotice(`回到預設值失敗：${error.message}`, "missing");
+    showActionStatus(`回到預設值失敗：${friendlyError(error.message)}`, "missing");
+  }
+}
+
+async function persistCurrentSettings() {
+  const settings = collectSettings();
+  try {
+    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // localStorage may be unavailable in private or restricted browser contexts.
+  }
+  const response = await fetch("/api/potential-stocks/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(readInputs("pre_market", { persist: true }))
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
 async function loadCloudSettings() {
   try {
     const response = await fetch("/api/potential-stocks/settings");
@@ -524,7 +570,6 @@ function collectSettings() {
 
 function applySettings(settings, options = {}) {
   const includeCapital = options.includeCapital !== false;
-  symbolsInput.value = settings.symbols || DEFAULT_SETTINGS.symbols;
   if (includeCapital) capitalInput.value = String(settings.initial_capital || DEFAULT_SETTINGS.initial_capital);
   setValue("#maxPositionsInput", settings.max_positions);
   setValue("#positionCapInput", settings.max_position_pct);
@@ -551,6 +596,12 @@ function applySettings(settings, options = {}) {
   });
   universeInput.value = universes[0] || "semiconductor";
   updateUniverseSummary();
+  if (universes.includes("custom")) {
+    const explicitSymbols = settings.symbols || DEFAULT_SETTINGS.symbols;
+    symbolsInput.value = Array.isArray(explicitSymbols) ? explicitSymbols.join(", ") : String(explicitSymbols);
+  } else {
+    syncSymbolsFromUniverseSelection();
+  }
 }
 
 function apiSettingsToUi(settings) {
@@ -619,6 +670,18 @@ function selectedUniverseValues() {
   return values.length ? values : ["semiconductor"];
 }
 
+function syncSymbolsFromUniverseSelection() {
+  const selected = selectedUniverseValues();
+  if (selected.includes("custom")) return;
+  const merged = [];
+  for (const universe of selected) {
+    for (const symbol of universeSymbols[universe] || []) {
+      if (!merged.includes(symbol)) merged.push(symbol);
+    }
+  }
+  if (merged.length) symbolsInput.value = merged.join(", ");
+}
+
 function syncUniverseSelection(event) {
   const changed = event?.target;
   if (changed?.value === "custom" && changed.checked) {
@@ -629,14 +692,7 @@ function syncUniverseSelection(event) {
   const selected = selectedUniverseValues();
   universeInput.value = selected[0] || "semiconductor";
   updateUniverseSummary();
-  if (selected.includes("custom")) return;
-  const merged = [];
-  for (const universe of selected) {
-    for (const symbol of universeSymbols[universe] || []) {
-      if (!merged.includes(symbol)) merged.push(symbol);
-    }
-  }
-  if (merged.length) symbolsInput.value = merged.join(", ");
+  syncSymbolsFromUniverseSelection();
 }
 
 function updateUniverseSummary() {
