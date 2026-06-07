@@ -34,7 +34,7 @@ const resetSettingsButton = document.querySelector("#resetSettingsButton");
 const storageBackendInput = document.querySelector("#storageBackendInput");
 const switchStorageButton = document.querySelector("#switchStorageButton");
 const storageStatus = document.querySelector("#storageStatus");
-const APP_VERSION = "potential-20260607-cloud-settings-sequence";
+const APP_VERSION = "potential-20260607-settings-controls-v2";
 const SETTINGS_KEY = "potentialStockToolSettings";
 
 const universeSymbols = {
