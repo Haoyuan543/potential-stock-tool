@@ -12,6 +12,7 @@ import backend.services.potential_stock_service as potential_stock_module
 from backend.config import get_settings
 from backend.main import app
 from backend.models import DataPoint, MarketDataset, PotentialBacktestRequest, PotentialStockRequest, PriceBar
+from backend.services.potential_stock_cron import PotentialStockCronRunner
 from backend.services.potential_stock_service import PotentialStockService
 
 
@@ -890,6 +891,34 @@ class PotentialStockServiceTest(unittest.TestCase):
 
 
 class PotentialStockApiTest(unittest.TestCase):
+    def test_cron_runner_accepted_payload_stays_compact(self) -> None:
+        runner = PotentialStockCronRunner(PotentialStockService(), get_settings)
+
+        payload = runner.accepted_payload("post_market")
+
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(payload["accepted"], True)
+        self.assertEqual(payload["background"], True)
+        self.assertEqual(payload["report_session"], "post_market")
+        self.assertNotIn("markdown", payload)
+
+    def test_cron_runner_sequence_skip_payload_keeps_reason(self) -> None:
+        runner = PotentialStockCronRunner(PotentialStockService(), get_settings)
+
+        payload = runner.sequence_skip_payload(
+            {
+                "report_session": "post_market",
+                "required_session": "market_hours",
+                "case_id": "default",
+                "reason": "今日尚未完成盤中模擬交易。",
+            }
+        )
+
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["skipped"])
+        self.assertEqual(payload["required_session"], "market_hours")
+        self.assertIn("盤中模擬交易", payload["reason"])
+
     def test_api_contract_without_live_data(self) -> None:
         client = TestClient(app)
         response = client.post(

@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import asyncio
 from base64 import b64decode
 from binascii import Error as BinasciiError
 from hmac import compare_digest
@@ -21,15 +19,15 @@ from backend.services.alpha_engine import AlphaDiscoveryEngine
 from backend.services.analysis_service import AnalysisService
 from backend.services.backtest_engine import BacktestEngine
 from backend.services.daily_report import DailyReportService
-from backend.services.email_service import send_potential_stock_report_email
 from backend.services.fetchers import MarketDataFetcher
+from backend.services.potential_stock_cron import CronPotentialStockRequest, PotentialStockCronRunner
 from backend.services.potential_stock_service import PotentialStockService
 from backend.services.storage import set_runtime_storage_backend, storage_status
 
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
-BACKEND_VERSION = "potential-20260607-detached-cron"
+BACKEND_VERSION = "potential-20260607-cron-runner-refactor"
 
 app = FastAPI(title="AI Alpha Research Platform", version="0.2.0")
 app.add_middleware(
@@ -46,7 +44,7 @@ backtest_engine = BacktestEngine()
 daily_reports = DailyReportService()
 analysis_service = AnalysisService()
 potential_stock_service = PotentialStockService()
-_background_cron_tasks: set[asyncio.Task] = set()
+potential_stock_cron = PotentialStockCronRunner(potential_stock_service, get_settings)
 
 
 def _valid_basic_auth(header_value: str, username: str, password: str) -> bool:
@@ -121,13 +119,6 @@ class StorageBackendSwitchRequest(BaseModel):
     token: str = ""
 
 
-class CronPotentialStockRequest(PotentialStockRequest):
-    token: str = ""
-    send_email: bool | None = None
-    background: bool = False
-    use_saved_settings: bool = True
-
-
 def _authorize_cron(token: str = "", header_token: str = "") -> None:
     secret = get_settings().cron_job_secret
     provided = token or header_token
@@ -150,58 +141,10 @@ def _authorize_local_or_secret(request: Request, token: str = "", header_token: 
     raise HTTPException(status_code=403, detail="Delete actions are allowed only from localhost or with CRON_JOB_SECRET.")
 
 
-def _cron_response(report_session: str, report: object, email_result: dict | None = None) -> dict:
-    return {
-        "ok": True,
-        "report_session": report_session,
-        "email": email_result or {"sent": False, "reason": "Email was not requested."},
-        "generated_at": getattr(report, "generated_at", None),
-        "market_stance": getattr(report, "market_stance", ""),
-        "analysis_count": len(getattr(report, "analyses", []) or []),
-        "trade_count": len(getattr(getattr(report, "portfolio", None), "trades", []) or []),
-        "total_value": getattr(getattr(report, "portfolio", None), "total_value", None),
-        "data_limitations": getattr(report, "data_limitations", []),
-        "markdown": getattr(report, "markdown", ""),
-    }
-
-
-def _cron_sequence_skip_response(sequence: dict) -> dict:
-    return {
-        "ok": True,
-        "accepted": False,
-        "skipped": True,
-        "background": False,
-        "report_session": sequence.get("report_session"),
-        "required_session": sequence.get("required_session"),
-        "case_id": sequence.get("case_id"),
-        "reason": sequence.get("reason") or "Skipped by cron sequence guard.",
-    }
-
-
-async def _execute_potential_stock_cron(request: PotentialStockRequest, report_session: str, send_email: bool | None = None) -> dict:
-    report = await potential_stock_service.run(request)
-    should_send_email = get_settings().send_cron_email if send_email is None else send_email
-    email_result = send_potential_stock_report_email(report_session, report) if should_send_email else {"sent": False, "reason": "send_email=false"}
-    return _cron_response(report_session, report, email_result)
-
-
-async def _run_potential_stock_cron_background(request: PotentialStockRequest, report_session: str, send_email: bool | None = None) -> None:
-    try:
-        await _execute_potential_stock_cron(request, report_session, send_email)
-    except Exception as exc:  # noqa: BLE001
-        print(f"Background potential-stock cron failed for {report_session}: {exc}")
-
-
-def _schedule_potential_stock_cron(request: PotentialStockRequest, report_session: str, send_email: bool | None = None) -> None:
-    task = asyncio.create_task(_run_potential_stock_cron_background(request, report_session, send_email))
-    _background_cron_tasks.add(task)
-    task.add_done_callback(_background_cron_tasks.discard)
-
-
 def _cron_accepted_response(report_session: str) -> JSONResponse:
     return JSONResponse(
         status_code=202,
-        content={"ok": True, "accepted": True, "background": True, "report_session": report_session},
+        content=potential_stock_cron.accepted_payload(report_session),
         headers={"Cache-Control": "no-store"},
     )
 
@@ -431,11 +374,11 @@ async def cron_potential_stocks(
         )
     sequence = potential_stock_service.sequence_check(session, persist=persist)
     if not sequence["allowed"]:
-        return _cron_sequence_skip_response(sequence)
+        return potential_stock_cron.sequence_skip_payload(sequence)
     if background:
-        _schedule_potential_stock_cron(request, session, send_email)
+        potential_stock_cron.schedule(request, session, send_email)
         return _cron_accepted_response(session)
-    return await _execute_potential_stock_cron(request, session, send_email)
+    return await potential_stock_cron.execute(request, session, send_email)
 
 
 @app.post("/api/cron/potential-stocks")
@@ -448,11 +391,11 @@ async def cron_potential_stocks_post(request: CronPotentialStockRequest, x_cron_
     )
     sequence = potential_stock_service.sequence_check(safe_request.report_session, persist=safe_request.persist)
     if not sequence["allowed"]:
-        return _cron_sequence_skip_response(sequence)
+        return potential_stock_cron.sequence_skip_payload(sequence)
     if request.background:
-        _schedule_potential_stock_cron(safe_request, safe_request.report_session, request.send_email)
+        potential_stock_cron.schedule(safe_request, safe_request.report_session, request.send_email)
         return _cron_accepted_response(safe_request.report_session)
-    return await _execute_potential_stock_cron(safe_request, safe_request.report_session, request.send_email)
+    return await potential_stock_cron.execute(safe_request, safe_request.report_session, request.send_email)
 
 
 app.mount("/static", StaticFiles(directory=str(FRONTEND)), name="static")
