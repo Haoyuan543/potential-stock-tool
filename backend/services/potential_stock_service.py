@@ -1020,6 +1020,7 @@ class PotentialStockService:
                     "status": self._followup_status(item, intraday_item, post_item, followup_return),
                 }
             )
+        decision_reviews = self._decision_reviews(pre, intraday, post)
         return {
             "date": day["date"],
             "has_pre_market": pre is not None,
@@ -1030,8 +1031,57 @@ class PotentialStockService:
             "post_market": post,
             "portfolio_snapshot": portfolio_snapshot,
             "followups": followups,
+            "decision_reviews": decision_reviews,
             "summary": self._day_summary(pre, intraday, post, followups),
         }
+
+    def _decision_reviews(self, pre: dict[str, Any] | None, intraday: dict[str, Any] | None, post: dict[str, Any] | None) -> list[dict[str, Any]]:
+        if not intraday:
+            return []
+        pre_lookup = {item.get("symbol"): item for item in (pre or {}).get("analyses", [])}
+        post_lookup = {item.get("symbol"): item for item in (post or {}).get("analyses", [])}
+        rows: list[dict[str, Any]] = []
+        for trade in (intraday.get("portfolio") or {}).get("trades") or []:
+            symbol = str(trade.get("symbol") or "")
+            if not symbol:
+                continue
+            pre_item = pre_lookup.get(symbol) or {}
+            post_item = post_lookup.get(symbol) or {}
+            entry_price = self._float_or_none(trade.get("price"))
+            post_price = self._float_or_none(post_item.get("latest_price"))
+            result_return = (post_price - entry_price) / entry_price if entry_price and post_price and trade.get("action") == "BUY" else None
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "company_name": trade.get("company_name") or pre_item.get("company_name") or post_item.get("company_name") or self._company_name(symbol),
+                    "premarket_action": trade.get("premarket_action") or (self._action_label(pre_item.get("action")) if pre_item else "盤前未列入"),
+                    "premarket_score": trade.get("premarket_score") if trade.get("premarket_score") is not None else pre_item.get("score"),
+                    "intraday_action": self._action_label(trade.get("action")),
+                    "intraday_score": trade.get("intraday_score"),
+                    "decision_change": trade.get("decision_change") or "intraday_decision",
+                    "decision_basis": trade.get("decision_basis") or trade.get("reason") or "",
+                    "entry_price": entry_price,
+                    "post_price": post_price,
+                    "result_return": result_return,
+                    "post_score": post_item.get("score"),
+                    "review": self._decision_review_text(trade, result_return, post_item),
+                }
+            )
+        return rows
+
+    def _decision_review_text(self, trade: dict[str, Any], result_return: float | None, post_item: dict[str, Any]) -> str:
+        change = str(trade.get("decision_change") or "")
+        if result_return is None:
+            if change == "cancel_premarket_buy":
+                return "盤中取消買進，盤後先列為避免追高或資料不足的保守決策，需持續觀察是否錯過強勢股。"
+            if trade.get("action") == "SELL":
+                return "盤中賣出後，盤後以風險控制角度檢討是否有效降低回撤。"
+            return "盤後缺少可量化成交後價格，暫列待驗證。"
+        if result_return > 0:
+            return f"盤中決策到盤後暫為正報酬 {self._pct(result_return)}，短線驗證偏正向。"
+        if result_return < 0:
+            return f"盤中決策到盤後暫為負報酬 {self._pct(result_return)}，需檢討買點、滑價或訊號延遲。"
+        return "盤中決策到盤後約持平，暫無明顯優劣。"
 
     def _day_summary(self, pre: dict[str, Any] | None, intraday: dict[str, Any] | None, post: dict[str, Any] | None, followups: list[dict[str, Any]]) -> str:
         if not pre:
@@ -1042,7 +1092,8 @@ class PotentialStockService:
             executed = len([trade for trade in (intraday.get("portfolio") or {}).get("trades") or [] if trade.get("action") in {"BUY", "SELL"}])
             return f"已完成盤中模擬，今日執行 {executed} 筆；尚未盤後結算。"
         positive = sum(1 for item in followups if (item.get("intraday_return") or 0) > 0)
-        return f"已完成盤後結算；盤前候選 {len(followups)} 檔，其中 {positive} 檔盤中表現為正。"
+        decision_count = len(self._decision_reviews(pre, intraday, post))
+        return f"已完成盤後結算；盤前候選 {len(followups)} 檔，其中 {positive} 檔盤中表現為正；盤中決策已回顧 {decision_count} 筆。"
 
     def _followup_status(self, pre_item: dict[str, Any], intraday_item: dict[str, Any] | None, post_item: dict[str, Any] | None, intraday_return: float | None) -> str:
         if intraday_item is None:
@@ -1067,6 +1118,12 @@ class PotentialStockService:
                 for item in day["followups"]:
                     blocks.append(
                         f"  - {item['symbol']} {item['company_name']}：盤前 {item['pre_score']} 分，盤中 {item.get('intraday_score') or '--'} 分，盤後 {item.get('post_score') or '--'} 分，狀態 {item['status']}，盤中報酬 {self._pct(item.get('intraday_return'))}"
+                    )
+            if day.get("decision_reviews"):
+                blocks.append("- 盤中決策回顧：")
+                for item in day["decision_reviews"]:
+                    blocks.append(
+                        f"  - {item['symbol']} {item['company_name']}：{item['decision_change']}，盤前 {item.get('premarket_score') or '--'} 分，盤中 {item.get('intraday_score') or '--'} 分，盤後 {item.get('post_score') or '--'} 分，盤後檢討：{item['review']}"
                     )
             blocks.append("")
         return "\n".join(blocks)
@@ -1984,33 +2041,42 @@ class PotentialStockService:
 
         max_positions = max(1, min(30, int(request.max_positions or 5)))
         max_position = base_capital * max(0.01, min(0.5, request.max_position_pct))
-        planned_symbols = self._planned_symbols_for_today(request, case_id=case_id) if request.persist else set()
+        premarket_record = self._premarket_record_for_today(case_id=case_id) if request.persist else None
+        planned_trades = self._planned_trades_for_today(case_id=case_id) if request.persist else {}
+        planned_symbols = set(planned_trades)
         buy_candidates = [item for item in analyses if item.action == "BUY" and item.latest_price and item.latest_price > 0]
         existing_symbols = {str(item.get("symbol")) for item in holdings}
+        bought_symbols: set[str] = set()
         for analysis in buy_candidates:
             if analysis.symbol in existing_symbols or analysis.symbol in sold_symbols:
                 continue
-            if request.persist and not planned_symbols:
+            if request.persist and premarket_record is None:
                 trades.append(PaperTradeDecision(symbol=analysis.symbol, company_name=analysis.company_name, action="WATCH", price=analysis.latest_price, reason="今日尚無盤前買進計畫，盤中不建立新倉位。"))
                 continue
-            if planned_symbols and analysis.symbol not in planned_symbols:
-                trades.append(PaperTradeDecision(symbol=analysis.symbol, company_name=analysis.company_name, action="WATCH", price=analysis.latest_price, reason="未列入今日盤前買進計畫，盤中不新增追價。"))
-                continue
+            pre_trade = planned_trades.get(analysis.symbol) or {}
+            decision_change = "follow_premarket_plan" if analysis.symbol in planned_symbols else "intraday_new_buy"
+            pre_action = str(pre_trade.get("action") or ("PLAN_BUY" if analysis.symbol in planned_symbols else "WATCH"))
+            pre_score = self._premarket_score_for_symbol(premarket_record, analysis.symbol)
+            if decision_change == "intraday_new_buy":
+                should_trade, gate_reason = self._should_plan_trade_today(analysis, request)
+                if not should_trade:
+                    trades.append(PaperTradeDecision(symbol=analysis.symbol, company_name=analysis.company_name, action="WATCH", price=analysis.latest_price, reason=f"盤中重新評估未通過新增買進門檻：{gate_reason}", premarket_action=pre_action, premarket_score=pre_score, intraday_score=analysis.score, decision_change="intraday_watch", decision_basis="盤中重新評估：雖然出現買進訊號，但資料品質、籌碼、技術或風險門檻不足。"))
+                    continue
             if len(holdings) >= max_positions:
                 reason = f"已達最多持股 {max_positions} 檔，列為換股候選。"
                 replacement_suggestions.append({"symbol": analysis.symbol, "company_name": analysis.company_name, "score": analysis.score, "price": analysis.latest_price, "reason": reason})
-                trades.append(PaperTradeDecision(symbol=analysis.symbol, company_name=analysis.company_name, action="WATCH", price=analysis.latest_price, reason=reason))
+                trades.append(PaperTradeDecision(symbol=analysis.symbol, company_name=analysis.company_name, action="WATCH", price=analysis.latest_price, reason=reason, premarket_action=pre_action, premarket_score=pre_score, intraday_score=analysis.score, decision_change="intraday_watch", decision_basis="盤中重新評估：達買進條件，但持股上限已滿。"))
                 continue
             reference_price = self._reference_price(analysis, request)
             buy_price = self._buy_execution_price(analysis, request)
             if not buy_price or buy_price <= 0:
-                trades.append(PaperTradeDecision(symbol=analysis.symbol, company_name=analysis.company_name, action="WATCH", price=analysis.latest_price, reason="缺少可用盤中成交價，暫不買進。"))
+                trades.append(PaperTradeDecision(symbol=analysis.symbol, company_name=analysis.company_name, action="WATCH", price=analysis.latest_price, reason="缺少可用盤中成交價，暫不買進。", premarket_action=pre_action, premarket_score=pre_score, intraday_score=analysis.score, decision_change="intraday_watch", decision_basis="盤中重新評估：價格資料不足，不能模擬成交。"))
                 continue
             lot_size = 1000 if analysis.symbol.endswith((".TW", ".TWO")) else 1
             budget = min(max_position, cash)
             shares = int(budget // (buy_price * lot_size)) * lot_size
             if shares <= 0:
-                trades.append(PaperTradeDecision(symbol=analysis.symbol, company_name=analysis.company_name, action="WATCH", price=buy_price, reason="資金不足，暫不買進。"))
+                trades.append(PaperTradeDecision(symbol=analysis.symbol, company_name=analysis.company_name, action="WATCH", price=buy_price, reason="資金不足，暫不買進。", premarket_action=pre_action, premarket_score=pre_score, intraday_score=analysis.score, decision_change="intraday_watch", decision_basis="盤中重新評估：資金不足或單價過高。"))
                 continue
             gross = shares * buy_price
             fee = gross * max(0, request.fee_rate)
@@ -2024,9 +2090,21 @@ class PotentialStockService:
             holding = {"symbol": analysis.symbol, "company_name": analysis.company_name, "shares": shares, "entry_price": buy_price, "market_price": mark_price, "market_value": market_value, "unrealized_pl": shares * (mark_price - buy_price), "score": analysis.score, "entry_date": datetime.now(TW_TZ).date().isoformat()}
             holdings.append(holding)
             existing_symbols.add(analysis.symbol)
+            bought_symbols.add(analysis.symbol)
             analysis.suggested_capital = gross
             analysis.suggested_shares = shares
-            trades.append(PaperTradeDecision(symbol=analysis.symbol, company_name=analysis.company_name, action="BUY", shares=shares, price=buy_price, amount=gross, reason=f"盤中用當下股價加滑價，依盤前計畫成交。{analysis.thesis}"))
+            decision_text = "依盤前計畫成交" if decision_change == "follow_premarket_plan" else "盤中重新評估後新增買進"
+            trades.append(PaperTradeDecision(symbol=analysis.symbol, company_name=analysis.company_name, action="BUY", shares=shares, price=buy_price, amount=gross, reason=f"盤中用當下股價加滑價，{decision_text}。{analysis.thesis}", premarket_action=pre_action, premarket_score=pre_score, intraday_score=analysis.score, decision_change=decision_change, decision_basis=f"盤中重新評估：目前分數 {analysis.score}/100，價格 {reference_price or buy_price:.2f}，{decision_text}。"))
+
+        for symbol in sorted(planned_symbols - bought_symbols - sold_symbols - existing_symbols):
+            analysis = analyses_by_symbol.get(symbol)
+            pre_trade = planned_trades.get(symbol) or {}
+            pre_score = self._premarket_score_for_symbol(premarket_record, symbol)
+            if analysis:
+                reason = f"盤中重新評估取消盤前買進：目前分數 {analysis.score}/100，建議 {self._action_label(analysis.action)}，未符合盤中買進條件。{analysis.thesis}"
+                trades.append(PaperTradeDecision(symbol=symbol, company_name=analysis.company_name, action="WATCH", price=analysis.latest_price, reason=reason, premarket_action=str(pre_trade.get("action") or "PLAN_BUY"), premarket_score=pre_score, intraday_score=analysis.score, decision_change="cancel_premarket_buy", decision_basis="盤前原本計畫買進，但盤中價格、分數或風險條件不再支持成交。"))
+            else:
+                trades.append(PaperTradeDecision(symbol=symbol, company_name=str(pre_trade.get("company_name") or self._company_name(symbol)), action="WATCH", price=self._float_or_none(pre_trade.get("price")), reason="盤中資料未涵蓋此盤前標的，取消盤前買進並保留觀察。", premarket_action=str(pre_trade.get("action") or "PLAN_BUY"), premarket_score=pre_score, intraday_score=None, decision_change="cancel_premarket_buy", decision_basis="盤中缺少可驗證資料，未執行盤前計畫。"))
 
         invested_value = sum(self._float_or_none(item.get("market_value")) or 0 for item in holdings)
         unrealized_pl = sum(self._float_or_none(item.get("unrealized_pl")) or 0 for item in holdings)
@@ -2105,18 +2183,33 @@ class PotentialStockService:
         return request.initial_capital
 
     def _planned_symbols_for_today(self, request: PotentialStockRequest, case_id: str | None = None) -> set[str]:
+        return set(self._planned_trades_for_today(case_id=case_id))
+
+    def _premarket_record_for_today(self, case_id: str | None = None) -> dict[str, Any] | None:
         today = datetime.now(TW_TZ).date().isoformat()
         rows = [row for row in self.history(limit=500, case_id=case_id) if row.get("trading_date") == today and row.get("report_session") == "pre_market"]
         rows.sort(key=lambda item: str(item.get("generated_at") or ""))
-        if not rows:
-            return set()
-        planned_record = rows[0]
-        symbols = {
-            trade.get("symbol")
+        return rows[0] if rows else None
+
+    def _planned_trades_for_today(self, case_id: str | None = None) -> dict[str, dict[str, Any]]:
+        planned_record = self._premarket_record_for_today(case_id=case_id)
+        if not planned_record:
+            return {}
+        trades = {
+            str(trade.get("symbol")): dict(trade)
             for trade in (planned_record.get("portfolio") or {}).get("trades") or []
-            if trade.get("action") == "PLAN_BUY"
+            if trade.get("action") == "PLAN_BUY" and trade.get("symbol")
         }
-        return {str(symbol) for symbol in symbols if symbol}
+        return trades
+
+    def _premarket_score_for_symbol(self, premarket_record: dict[str, Any] | None, symbol: str) -> int | None:
+        if not premarket_record:
+            return None
+        for item in premarket_record.get("analyses") or []:
+            if item.get("symbol") == symbol:
+                score = self._float_or_none(item.get("score"))
+                return int(score) if score is not None else None
+        return None
 
     def _sell_reason(self, holding: dict[str, Any], analysis: PotentialStockAnalysis | None, request: PotentialStockRequest) -> str:
         entry_price = self._float_or_none(holding.get("entry_price"))

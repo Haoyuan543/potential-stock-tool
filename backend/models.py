@@ -191,6 +191,11 @@ class PaperTradeDecision(BaseModel):
     price: float | None = None
     amount: float = 0
     reason: str
+    premarket_action: str = ""
+    premarket_score: int | None = None
+    intraday_score: int | None = None
+    decision_change: str = ""
+    decision_basis: str = ""
 
 
 class PaperPortfolio(BaseModel):

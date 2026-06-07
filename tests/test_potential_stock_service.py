@@ -489,6 +489,54 @@ class PotentialStockServiceTest(unittest.TestCase):
         self.assertAlmostEqual(portfolio.holdings[0]["market_price"], analysis.latest_price or 0)
         self.assertLess(portfolio.holdings[0]["unrealized_pl"], 0)
         self.assertGreater(portfolio.costs, 0)
+        self.assertEqual(portfolio.trades[0].decision_change, "follow_premarket_plan")
+        self.assertEqual(portfolio.trades[0].intraday_score, analysis.score)
+
+    def test_intraday_can_add_new_buy_after_reassessment_when_premarket_exists(self) -> None:
+        request = PotentialStockRequest(symbols=["2330.TW", "2454.TW"], report_session="market_hours", initial_capital=2_000_000, buy_score=60, use_live_data=False, persist=True, slippage_bps=10)
+        planned = self.service._analyze_dataset(self._strong_dataset("2330"), request)
+        new_candidate = self.service._analyze_dataset(self._strong_dataset("2454"), request)
+        self.service.latest_ledger = lambda case_id=None: None
+        self.service.history = lambda limit=500, case_id=None: [
+            {
+                "generated_at": "2026-06-06T08:00:00+08:00",
+                "trading_date": datetime.now(TW_TEST_TZ).date().isoformat(),
+                "report_session": "pre_market",
+                "analyses": [{"symbol": "2330.TW", "company_name": "台積電", "action": "BUY", "score": 78}],
+                "portfolio": {"trades": [{"symbol": "2330.TW", "company_name": "台積電", "action": "PLAN_BUY"}]},
+            }
+        ]
+
+        portfolio = self.service._paper_trade_with_ledger([planned, new_candidate], request)
+
+        new_buy = next(trade for trade in portfolio.trades if trade.symbol == "2454.TW")
+        self.assertEqual(new_buy.action, "BUY")
+        self.assertEqual(new_buy.decision_change, "intraday_new_buy")
+        self.assertIn("盤中重新評估後新增買進", new_buy.reason)
+
+    def test_intraday_can_cancel_premarket_buy_when_signal_weakens(self) -> None:
+        request = PotentialStockRequest(symbols=["2330.TW"], report_session="market_hours", initial_capital=1_000_000, buy_score=60, use_live_data=False, persist=True)
+        analysis = self.service._analyze_dataset(self._strong_dataset("2330"), request)
+        analysis.action = "WATCH"
+        analysis.score = 52
+        self.service.latest_ledger = lambda case_id=None: None
+        self.service.history = lambda limit=500, case_id=None: [
+            {
+                "generated_at": "2026-06-06T08:00:00+08:00",
+                "trading_date": datetime.now(TW_TEST_TZ).date().isoformat(),
+                "report_session": "pre_market",
+                "analyses": [{"symbol": "2330.TW", "company_name": "台積電", "action": "BUY", "score": 78}],
+                "portfolio": {"trades": [{"symbol": "2330.TW", "company_name": "台積電", "action": "PLAN_BUY"}]},
+            }
+        ]
+
+        portfolio = self.service._paper_trade_with_ledger([analysis], request)
+
+        self.assertEqual(portfolio.holdings, [])
+        self.assertEqual(portfolio.trades[0].action, "WATCH")
+        self.assertEqual(portfolio.trades[0].decision_change, "cancel_premarket_buy")
+        self.assertEqual(portfolio.trades[0].premarket_score, 78)
+        self.assertEqual(portfolio.trades[0].intraday_score, 52)
 
     def test_intraday_without_premarket_plan_does_not_open_new_position(self) -> None:
         request = PotentialStockRequest(symbols=["2330.TW"], report_session="market_hours", initial_capital=1_000_000, buy_score=60, use_live_data=False, persist=True)
@@ -855,6 +903,44 @@ class PotentialStockServiceTest(unittest.TestCase):
         self.assertFalse(any(trade.action == "BUY" for trade in portfolio.trades))
         self.assertTrue(any(trade.action == "HOLD" for trade in portfolio.trades))
         self.assertEqual(portfolio.cash, 800_000)
+
+    def test_daily_status_reviews_intraday_decision_changes_after_postmarket(self) -> None:
+        day = {
+            "date": datetime.now(TW_TEST_TZ).date().isoformat(),
+            "pre_market": {
+                "analyses": [{"symbol": "2330.TW", "company_name": "台積電", "action": "BUY", "score": 78, "latest_price": 100}],
+                "portfolio": {"trades": [{"symbol": "2330.TW", "action": "PLAN_BUY", "price": 100}]},
+            },
+            "market_hours": {
+                "analyses": [{"symbol": "2454.TW", "company_name": "聯發科", "action": "BUY", "score": 82, "latest_price": 200}],
+                "portfolio": {
+                    "trades": [
+                        {
+                            "symbol": "2454.TW",
+                            "company_name": "聯發科",
+                            "action": "BUY",
+                            "price": 200,
+                            "reason": "盤中重新評估後新增買進",
+                            "premarket_action": "WATCH",
+                            "premarket_score": None,
+                            "intraday_score": 82,
+                            "decision_change": "intraday_new_buy",
+                            "decision_basis": "盤中重新評估：目前分數 82/100。",
+                        }
+                    ]
+                },
+            },
+            "post_market": {
+                "analyses": [{"symbol": "2454.TW", "company_name": "聯發科", "action": "BUY", "score": 80, "latest_price": 210}],
+                "portfolio": {"trades": []},
+            },
+        }
+
+        summary = self.service._summarize_day(day)
+
+        self.assertEqual(summary["decision_reviews"][0]["decision_change"], "intraday_new_buy")
+        self.assertIn("正報酬", summary["decision_reviews"][0]["review"])
+        self.assertIn("盤中決策已回顧 1 筆", summary["summary"])
 
     def test_duplicate_premarket_returns_immutable_record_without_fetching(self) -> None:
         today = datetime.now(TW_TEST_TZ).date().isoformat()

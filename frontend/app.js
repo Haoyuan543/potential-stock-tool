@@ -34,7 +34,7 @@ const resetSettingsButton = document.querySelector("#resetSettingsButton");
 const storageBackendInput = document.querySelector("#storageBackendInput");
 const switchStorageButton = document.querySelector("#switchStorageButton");
 const storageStatus = document.querySelector("#storageStatus");
-const APP_VERSION = "potential-20260608-error-guard-v1";
+const APP_VERSION = "potential-20260608-intraday-redecision-v1";
 const SETTINGS_KEY = "potentialStockToolSettings";
 
 const universeSymbols = {
@@ -1596,6 +1596,7 @@ function tradeDecisionTable(title, record, actions = []) {
             <th>股數</th>
             <th>價格</th>
             <th>金額</th>
+            <th>決策變化</th>
             <th>理由</th>
           </tr>
         </thead>
@@ -1607,7 +1608,52 @@ function tradeDecisionTable(title, record, actions = []) {
               <td>${escapeHtml(sharesText(trade.shares))}</td>
               <td>${trade.price === undefined || trade.price === null ? "--" : escapeHtml(Number(trade.price).toFixed(2))}</td>
               <td>${money(trade.amount)}</td>
+              <td>${escapeHtml(decisionChangeLabel(trade.decision_change))}</td>
               <td>${escapeHtml(trade.reason || "--")}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </section>
+  `;
+}
+
+function decisionChangeLabel(value) {
+  return {
+    follow_premarket_plan: "照盤前計畫",
+    intraday_new_buy: "盤中新增買進",
+    cancel_premarket_buy: "盤中取消買進",
+    intraday_watch: "盤中改觀察",
+    intraday_decision: "盤中決策",
+  }[value] || "--";
+}
+
+function decisionReviewTable(day) {
+  const rows = day.decision_reviews || [];
+  if (!rows.length) return "";
+  return `
+    <section class="daily-subsection decision-review-section">
+      <h3>盤中決策回顧</h3>
+      <table class="daily-table compact-table">
+        <thead>
+          <tr>
+            <th>股票</th>
+            <th>盤前</th>
+            <th>盤中</th>
+            <th>盤後</th>
+            <th>決策變化</th>
+            <th>盤後檢討</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((row) => `
+            <tr>
+              <td>${escapeHtml(stockLabel(row))}</td>
+              <td>${escapeHtml(row.premarket_score ?? "--")} 分</td>
+              <td>${escapeHtml(row.intraday_score ?? "--")} 分</td>
+              <td>${escapeHtml(row.post_score ?? "--")} 分</td>
+              <td>${escapeHtml(decisionChangeLabel(row.decision_change))}</td>
+              <td>${escapeHtml(row.review || row.decision_basis || "--")}</td>
             </tr>
           `).join("")}
         </tbody>
@@ -1704,6 +1750,7 @@ function dailyDetailSection(day) {
         ${tradeDecisionTable("盤前預計", day.pre_market, ["PLAN_BUY", "WATCH", "AVOID"])}
         ${tradeDecisionTable("盤中操作", day.market_hours, ["BUY", "SELL", "WATCH", "HOLD"])}
         ${tradeDecisionTable("盤後結算", day.post_market, ["HOLD", "WATCH", "SELL"])}
+        ${decisionReviewTable(day)}
         ${profitLossStatusTable(portfolio)}
         ${holdingsStatusTable(portfolio)}
         ${fundStatusTable(portfolio)}
@@ -2018,6 +2065,7 @@ function ledgerActionSections(rows) {
               <th>價格</th>
               <th>金額</th>
               <th>帳戶淨值</th>
+              <th>決策變化</th>
               <th>原因</th>
             </tr>
           </thead>
@@ -2037,6 +2085,7 @@ ledgerRow = function(row) {
       <td>${row.price === null || row.price === undefined ? "--" : escapeHtml(Number(row.price).toFixed(2))}</td>
       <td>${money(row.amount)}</td>
       <td>${money(row.total_value)}</td>
+      <td>${escapeHtml(decisionChangeLabel(row.decision_change))}</td>
       <td>${escapeHtml(row.reason || "--")}</td>
     </tr>
   `;
