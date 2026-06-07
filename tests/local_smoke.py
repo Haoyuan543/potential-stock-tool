@@ -39,7 +39,7 @@ def main() -> None:
         "switchStorageButton",
         "storageStatus",
         "納入前一晚美股科技 / 半導體領先因子",
-        "potential-20260608-analysis-depth-v1",
+        "potential-20260608-error-guard-v1",
     ]:
         assert marker in home.text
 
@@ -62,7 +62,9 @@ def main() -> None:
         assert marker in home.text
     assert home.text.index('id="dailyOutput"') < home.text.index('id="rankingOutput"')
     for marker in [
-        'APP_VERSION = "potential-20260608-analysis-depth-v1"',
+        'APP_VERSION = "potential-20260608-error-guard-v1"',
+        "readApiError",
+        "502 Bad Gateway",
         "loadCloudSettings",
         "saveSettingsToCloud",
         "/api/potential-stocks/settings",
@@ -128,7 +130,7 @@ def main() -> None:
 
     health = client.get("/health")
     assert health.status_code == 200
-    assert health.json()["backend_version"] == "potential-20260608-analysis-depth-v1"
+    assert health.json()["backend_version"] == "potential-20260608-error-guard-v1"
     assert health.json()["storage"]["backend"] in {"local", "supabase"}
 
     storage_status = client.get("/api/storage/status")
@@ -160,7 +162,7 @@ def main() -> None:
     assert "set_runtime_storage_backend" in storage_py
     assert "StorageError" in storage_py
     assert "supabase_probe" in storage_py
-    assert "後端發生錯誤" in app_js
+    assert "後端執行失敗" in app_js
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
     assert "STORAGE_BACKEND" in env_example
     assert "DASHBOARD_PASSWORD" in env_example

@@ -34,7 +34,7 @@ const resetSettingsButton = document.querySelector("#resetSettingsButton");
 const storageBackendInput = document.querySelector("#storageBackendInput");
 const switchStorageButton = document.querySelector("#switchStorageButton");
 const storageStatus = document.querySelector("#storageStatus");
-const APP_VERSION = "potential-20260608-analysis-depth-v1";
+const APP_VERSION = "potential-20260608-error-guard-v1";
 const SETTINGS_KEY = "potentialStockToolSettings";
 
 const universeSymbols = {
@@ -154,7 +154,7 @@ async function checkHealth() {
   } catch (error) {
     apiStatus.textContent = `API 無法連線 | 前端 ${APP_VERSION}`;
     apiStatus.className = "status-pill bad-pill";
-    showNotice(`API 連線失敗：${error.message}`, "missing");
+    showNotice(`API 連線失敗：${friendlyError(error.message)}`, "missing");
   }
 }
 
@@ -162,7 +162,7 @@ async function loadStorageStatus() {
   if (!storageBackendInput || !storageStatus) return;
   try {
     const response = await fetch(apiUrl("/api/storage/status"));
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await readApiError(response));
     const result = await response.json();
     storageBackendInput.value = result.backend || "local";
     const backendLabel = result.backend === "supabase" ? "Supabase 雲端資料" : "本機資料";
@@ -185,7 +185,7 @@ async function switchStorageBackend() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ backend })
     });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await readApiError(response));
     const result = await response.json();
     selectedCaseId = "";
     activeCaseId = "";
@@ -218,7 +218,7 @@ async function runPotentialStocks(reportSession, options = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(readInputs(reportSession, options))
     });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await readApiError(response));
     const result = await response.json();
     latestReport = result.markdown || "";
     renderSummary(result);
@@ -243,10 +243,11 @@ async function runPotentialStocks(reportSession, options = {}) {
     await loadDailyStatus(false);
     await loadLedger();
   } catch (error) {
-    latestReport = `# 分析失敗\n\n${error.message}`;
+    const message = friendlyError(error.message);
+    latestReport = `# 分析失敗\n\n${message}`;
     renderMarkdown(reportOutput, latestReport);
-    showNotice(`分析失敗：${error.message}`, "missing");
-    showActionStatus(`分析失敗：${friendlyError(error.message)}`, "missing");
+    showNotice(`分析失敗：${message}`, "missing");
+    showActionStatus(`分析失敗：${message}`, "missing");
   } finally {
     setLoading(false);
   }
@@ -256,26 +257,26 @@ async function loadDailyStatus(showSuccess = false, caseId = selectedCaseId) {
   try {
     const query = caseId ? `?limit=30&case_id=${encodeURIComponent(caseId)}` : "?limit=30";
     const response = await fetch(apiUrl(`/api/potential-stocks/daily-status${query}`));
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await readApiError(response));
     const result = await response.json();
     renderDailyTable(result.days || [], result.active_case_id || caseId || "");
     if (showSuccess) showNotice("每日狀況已更新。", "ok");
   } catch (error) {
-    dailyOutput.innerHTML = `<p class="empty-state">每日狀況載入失敗：${escapeHtml(error.message)}</p>`;
+    dailyOutput.innerHTML = `<p class="empty-state">每日狀況載入失敗：${escapeHtml(friendlyError(error.message))}</p>`;
   }
 }
 
 async function loadCases() {
   try {
     const response = await fetch(apiUrl("/api/potential-stocks/cases"));
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await readApiError(response));
     const result = await response.json();
     activeCaseId = result.active_case_id || "";
     if (!selectedCaseId) selectedCaseId = activeCaseId;
     renderCaseTable(result.cases || [], activeCaseId, selectedCaseId);
     applyCapitalLock(result.cases || [], activeCaseId);
   } catch (error) {
-    caseOutput.innerHTML = `<p class="empty-state">案件列表載入失敗：${escapeHtml(error.message)}</p>`;
+    caseOutput.innerHTML = `<p class="empty-state">案件列表載入失敗：${escapeHtml(friendlyError(error.message))}</p>`;
   }
 }
 
@@ -283,11 +284,11 @@ async function loadLedger(caseId = selectedCaseId) {
   try {
     const query = caseId ? `?limit=80&case_id=${encodeURIComponent(caseId)}` : "?limit=80";
     const response = await fetch(apiUrl(`/api/potential-stocks/ledger${query}`));
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await readApiError(response));
     const result = await response.json();
     renderLedgerTable(result.records || [], caseId || activeCaseId || "");
   } catch (error) {
-    ledgerOutput.innerHTML = `<p class="empty-state">帳本載入失敗：${escapeHtml(error.message)}</p>`;
+    ledgerOutput.innerHTML = `<p class="empty-state">帳本載入失敗：${escapeHtml(friendlyError(error.message))}</p>`;
   }
 }
 
@@ -297,7 +298,7 @@ async function loadBranchSummary(caseId = selectedCaseId || activeCaseId) {
   try {
     const query = target ? `?case_id=${encodeURIComponent(target)}` : "";
     const response = await fetch(apiUrl(`/api/potential-stocks/branch-summary${query}`));
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await readApiError(response));
     const result = await response.json();
     renderBranchSummary(result);
     latestReport = result.markdown || latestReport;
@@ -306,7 +307,7 @@ async function loadBranchSummary(caseId = selectedCaseId || activeCaseId) {
     showActionStatus(`支線總結已完成：${target || result.active_case_id || "default"}。`, "ok");
     branchSummaryOutput.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
-    branchSummaryOutput.innerHTML = `<p class="empty-state">支線總結失敗：${escapeHtml(error.message)}</p>`;
+    branchSummaryOutput.innerHTML = `<p class="empty-state">支線總結失敗：${escapeHtml(friendlyError(error.message))}</p>`;
     showActionStatus(`支線總結失敗：${friendlyError(error.message)}`, "missing");
   }
 }
@@ -347,7 +348,7 @@ async function resetCase() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ note: "手動重置，開始新的模擬追蹤。" })
     });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await readApiError(response));
     const result = await response.json();
     selectedCaseId = result.active_case_id || "";
     activeCaseId = result.active_case_id || "";
@@ -357,7 +358,7 @@ async function resetCase() {
     await loadDailyStatus(false);
     await loadLedger();
   } catch (error) {
-    showNotice(`重置案件失敗：${error.message}`, "missing");
+    showNotice(`重置案件失敗：${friendlyError(error.message)}`, "missing");
     showActionStatus(`重置案件失敗：${friendlyError(error.message)}`, "missing");
   } finally {
     setLoading(false);
@@ -370,7 +371,7 @@ async function deleteCase(caseId) {
   showActionStatus(`正在刪除案件 ${target}...`, "partial");
   try {
     const response = await fetch(apiUrl(`/api/potential-stocks/cases/${encodeURIComponent(target)}`), { method: "DELETE" });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await readApiError(response));
     const result = await response.json();
     selectedCaseId = result.active_case_id || "";
     activeCaseId = result.active_case_id || "";
@@ -388,7 +389,7 @@ async function deleteAllCases() {
   showActionStatus("正在刪除全部資料...", "partial");
   try {
     const response = await fetch(apiUrl("/api/potential-stocks/cases"), { method: "DELETE" });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await readApiError(response));
     const result = await response.json();
     selectedCaseId = result.active_case_id || "default";
     activeCaseId = result.active_case_id || "default";
@@ -410,7 +411,7 @@ async function switchTrackedCase(caseId) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ case_id: target })
     });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await readApiError(response));
     const result = await response.json();
     activeCaseId = result.active_case_id || target;
     selectedCaseId = activeCaseId;
@@ -444,7 +445,7 @@ async function saveSettingsToCloudV2() {
     showNotice("設定已儲存；雲端排程會讀取這份設定。", "ok");
     showActionStatus("設定已儲存到目前資料來源。", "ok");
   } catch (error) {
-    showNotice(`設定儲存失敗：${error.message}`, "missing");
+    showNotice(`設定儲存失敗：${friendlyError(error.message)}`, "missing");
     showActionStatus(`設定儲存失敗：${friendlyError(error.message)}`, "missing");
   }
 }
@@ -462,7 +463,7 @@ async function resetSettingsToDefaultV2() {
     showNotice(capitalInput.disabled ? "已回到預設設定；資金欄位因目前案件已鎖定，需建立新支線後才能調整。" : "已回到預設設定並儲存。", "ok");
     showActionStatus("預設設定已儲存到目前資料來源。", "ok");
   } catch (error) {
-    showNotice(`回到預設值失敗：${error.message}`, "missing");
+    showNotice(`回到預設值失敗：${friendlyError(error.message)}`, "missing");
     showActionStatus(`回到預設值失敗：${friendlyError(error.message)}`, "missing");
   }
 }
@@ -479,14 +480,14 @@ async function persistCurrentSettings() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(readInputs("pre_market", { persist: true }))
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw new Error(await readApiError(response));
   return response.json();
 }
 
 async function loadCloudSettings() {
   try {
     const response = await fetch(apiUrl("/api/potential-stocks/settings"));
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await readApiError(response));
     const result = await response.json();
     const settings = apiSettingsToUi(result.settings || {});
     try {
@@ -504,6 +505,12 @@ function apiUrl(path) {
   return `${window.location.protocol}//${window.location.host}${path}`;
 }
 
+async function readApiError(response) {
+  const text = await response.text();
+  const status = response?.status ? `HTTP ${response.status}` : "API";
+  return `${status}：${friendlyError(text)}`;
+}
+
 async function saveSettingsToCloud() {
   const settings = collectSettings();
   try {
@@ -513,11 +520,11 @@ async function saveSettingsToCloud() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(readInputs("pre_market", { persist: true }))
     });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await readApiError(response));
     showNotice("設定已儲存；雲端排程會讀取這份設定。", "ok");
     showActionStatus("設定已儲存到目前資料來源。", "ok");
   } catch (error) {
-    showNotice(`設定儲存失敗：${error.message}`, "missing");
+    showNotice(`設定儲存失敗：${friendlyError(error.message)}`, "missing");
     showActionStatus(`設定儲存失敗：${friendlyError(error.message)}`, "missing");
   }
 }
@@ -529,7 +536,7 @@ function saveSettings() {
     showNotice("設定已儲存在此瀏覽器。", "ok");
     showActionStatus("設定已儲存；下次開啟會自動套用。", "ok");
   } catch (error) {
-    showNotice(`設定儲存失敗：${error.message}`, "missing");
+    showNotice(`設定儲存失敗：${friendlyError(error.message)}`, "missing");
     showActionStatus(`設定儲存失敗：${friendlyError(error.message)}`, "missing");
   }
 }
@@ -969,20 +976,34 @@ renderLedgerTable = function(records, caseId = "") {
 };
 
 friendlyError = function(message) {
-  const text = String(message || "");
+  const text = String(message || "").trim();
   try {
     const parsed = JSON.parse(text);
     if (typeof parsed.detail === "string") return parsed.detail;
     if (Array.isArray(parsed.detail)) return parsed.detail.map((item) => item.msg || JSON.stringify(item)).join("；");
+    if (typeof parsed.message === "string") return parsed.message;
   } catch (_) {
     // Keep the original text fallback below.
   }
+  const plain = text
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const sample = plain || text;
+  if (/502|bad gateway/i.test(sample)) {
+    return "雲端服務暫時回傳 502 Bad Gateway，通常是 Render 正在重啟、部署或請求超時。請稍後重新整理，或到 Render Logs 查看錯誤。";
+  }
+  if (/504|gateway timeout|timeout/i.test(sample)) {
+    return "雲端請求逾時，可能是資料抓取太久或 Render 冷啟動。請稍後重試，或改用 background=true 背景排程。";
+  }
   if (text.includes("Supabase") && text.includes("failed")) return text;
-  if (text.includes("Internal Server Error")) return "後端發生錯誤，請重新整理後查看 /health 的 storage.supabase_probe，或到 Render Logs 看詳細原因。";
+  if (text.includes("Internal Server Error")) return "後端執行失敗，請重新整理後查看 /health 與 Render Logs 找詳細錯誤。";
   if (text.includes("report_session") && text.includes("market_hours")) {
     return "後端尚未接受盤中參數 market_hours，請確認雲端已部署最新版。";
   }
-  return text || "未知錯誤";
+  return sample ? (sample.length > 220 ? `${sample.slice(0, 220)}...` : sample) : "未知錯誤";
 };
 
 renderCaseTable = function(cases, active, current = "") {
@@ -1146,11 +1167,33 @@ function showActionStatus(text, tone = "") {
 }
 
 function friendlyError(message) {
-  const text = String(message || "");
+  const text = String(message || "").trim();
+  try {
+    const parsed = JSON.parse(text);
+    if (typeof parsed.detail === "string") return parsed.detail;
+    if (Array.isArray(parsed.detail)) return parsed.detail.map((item) => item.msg || JSON.stringify(item)).join("；");
+    if (typeof parsed.message === "string") return parsed.message;
+  } catch (_) {
+    // Keep the original text fallback below.
+  }
+  const plain = text
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const sample = plain || text;
+  if (/502|bad gateway/i.test(sample)) {
+    return "雲端服務暫時回傳 502 Bad Gateway，通常是 Render 正在重啟、部署或請求超時。請稍後重新整理，或到 Render Logs 查看錯誤。";
+  }
+  if (/504|gateway timeout|timeout/i.test(sample)) {
+    return "雲端請求逾時，可能是資料抓取太久或 Render 冷啟動。請稍後重試，或改用 background=true 背景排程。";
+  }
   if (text.includes("report_session") && text.includes("market_hours")) {
     return "後端要求盤中代碼必須是 market_hours；請重新整理頁面後再試。";
   }
-  return text.length > 220 ? `${text.slice(0, 220)}...` : text;
+  if (text.includes("Internal Server Error")) return "後端執行失敗，請重新整理後查看 /health 與 Render Logs 找詳細錯誤。";
+  return sample ? (sample.length > 220 ? `${sample.slice(0, 220)}...` : sample) : "未知錯誤";
 }
 
 function numberValue(selector, fallback) {
