@@ -404,6 +404,43 @@ class PotentialStockServiceTest(unittest.TestCase):
         self.assertEqual(len(links), 5)
         self.assertEqual(links[0]["tier"], "official_mops")
 
+    def test_analysis_explains_scores_and_market_shock_news_with_links(self) -> None:
+        request = PotentialStockRequest(symbols=["2330.TW"], use_live_data=False, persist=False)
+        dataset = self._strong_dataset("2330")
+        dataset.news = [
+            DataPoint(
+                source="NewsAPI",
+                name="台指期夜盤血洗3006點創 1 大慘紀錄",
+                value="台積電 ADR 與科技股受到夜盤恐慌賣壓影響。",
+                url="https://example.com/night-futures-crash",
+            )
+        ]
+        dataset.events = [
+            DataPoint(
+                source="股性關鍵字新聞",
+                name="CPU、TPU 搶晶圓，CoWoS 產能缺口上看 2 成",
+                value={"summary": "台積電先進封裝、HBM 與 NVIDIA AI 需求仍強。", "tier": "supply_chain_search", "credibility": 68, "relevance_score": 42, "drivers_hit": ["CoWoS", "NVIDIA", "產能"]},
+                url="https://example.com/cowos-capacity",
+            )
+        ]
+        dataset.events.extend(
+            DataPoint(
+                source="股性關鍵字新聞",
+                name=f"台積電 CoWoS 正面供應鏈新聞 {index}",
+                value={"summary": "CoWoS、NVIDIA 與先進封裝需求仍強。", "tier": "supply_chain_search", "credibility": 62, "relevance_score": 30},
+                url=f"https://example.com/positive-{index}",
+            )
+            for index in range(8)
+        )
+
+        analysis = self.service._analyze_dataset(dataset, request)
+
+        self.assertGreaterEqual(len(analysis.score_explanation), 5)
+        self.assertTrue(any("權重" in item and "貢獻" in item for item in analysis.score_explanation))
+        self.assertTrue(any("夜盤" in item or "血洗" in item or "恐慌" in item for item in analysis.news_impact_summary))
+        self.assertTrue(any(link["url"] == "https://example.com/night-futures-crash" for link in analysis.evidence_links))
+        self.assertTrue(any(link["url"] == "https://example.com/cowos-capacity" for link in analysis.evidence_links))
+
     def test_auto_report_session_resolves_by_taiwan_market_time(self) -> None:
         self.assertEqual(self.service._resolve_report_session("auto", datetime(2026, 6, 5, 8, 30, tzinfo=TW_TEST_TZ)), "pre_market")
         self.assertEqual(self.service._resolve_report_session("auto", datetime(2026, 6, 5, 10, 0, tzinfo=TW_TEST_TZ)), "market_hours")

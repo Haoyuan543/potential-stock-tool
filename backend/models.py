@@ -169,6 +169,8 @@ class PotentialStockAnalysis(BaseModel):
     technical_summary: list[str] = Field(default_factory=list)
     operating_summary: list[str] = Field(default_factory=list)
     us_market_summary: list[str] = Field(default_factory=list)
+    score_explanation: list[str] = Field(default_factory=list)
+    news_impact_summary: list[str] = Field(default_factory=list)
     advantages: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
     related_news: list[str] = Field(default_factory=list)

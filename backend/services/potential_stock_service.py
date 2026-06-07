@@ -1244,6 +1244,8 @@ class PotentialStockService:
                 "risks": item.risks[:4],
                 "related_news": item.related_news[:4],
                 "evidence_links": item.evidence_links[:5],
+                "score_explanation": item.score_explanation[:6],
+                "news_impact_summary": item.news_impact_summary[:5],
                 "thesis": item.thesis,
             }
             for item in analyses[:10]
@@ -1348,12 +1350,23 @@ class PotentialStockService:
         advantages = self._advantages(component_scores)
         risks = self._friendly_data_messages(news_risks + event_risks + self._risks(component_scores, dataset))
         related_news = self._friendly_data_messages([*event_summary, *related_news])[:5]
+        news_impact_summary = self._news_impact_summary(dataset, related_news, news_risks, event_risks)
         technical_summary = self._friendly_data_messages(technical_summary)
         fundamental_summary = self._friendly_data_messages(fundamental_summary)
         institutional_summary = self._friendly_data_messages(institutional_summary)
         operating_summary = self._friendly_data_messages(operating_summary)
         data_limitations = self._friendly_data_messages(dataset.limitations)
-        thesis = self._thesis(symbol, company_name, score, action, advantages, risks)
+        score_explanation = self._score_explanation(
+            component_scores,
+            request,
+            technical_summary,
+            fundamental_summary,
+            institutional_summary,
+            [*related_news, *news_impact_summary],
+            us_summary if request.use_us_tech_leading else [],
+            risks,
+        )
+        thesis = self._thesis(symbol, company_name, score, action, advantages, risks, score_explanation)
         return PotentialStockAnalysis(
             symbol=symbol,
             company_name=company_name,
@@ -1366,6 +1379,8 @@ class PotentialStockService:
             technical_summary=technical_summary,
             operating_summary=[*operating_summary, *smart_money_summary, *data_quality_summary],
             us_market_summary=us_summary if request.use_us_tech_leading else [],
+            score_explanation=score_explanation,
+            news_impact_summary=news_impact_summary,
             advantages=advantages,
             risks=risks,
             related_news=related_news,
@@ -1557,8 +1572,8 @@ class PotentialStockService:
             return 45, ["Data Missing: no recent news available."], ["新聞資料不足，事件風險覆蓋不完整。"]
         titles = [str(point.name) for point in rows[:5]]
         text = " ".join(titles + [str(point.value or "") for point in rows[:5]]).lower()
-        positive_words = ("growth", "beat", "record", "ai", "order", "benefit", "upgrade", "outperform")
-        negative_words = ("loss", "cut", "weak", "risk", "lawsuit", "decline", "downgrade", "miss")
+        positive_words = ("growth", "beat", "record", "ai", "order", "benefit", "upgrade", "outperform", "訂單", "產能", "擴產", "受惠", "創高", "法說", "調高")
+        negative_words = ("loss", "cut", "weak", "risk", "lawsuit", "decline", "downgrade", "miss", "大跌", "崩", "血洗", "恐慌", "下跌", "摜壓", "倒地", "缺口", "砍單", "下修", "賣壓")
         risks = [f"新聞出現負面關鍵字：{word}" for word in negative_words if word in text]
         score = 55 + sum(6 for word in positive_words if word in text) - sum(8 for word in negative_words if word in text)
         return int(max(0, min(100, score))), titles, risks
@@ -1615,12 +1630,16 @@ class PotentialStockService:
             "conference_material": 5,
         }
         candidates: list[DataPoint] = [point for point in [*dataset.events, *dataset.news] if not point.missing and point.url]
-        def rank(point: DataPoint) -> tuple[int, int]:
+        def rank(point: DataPoint) -> tuple[int, int, int]:
             value = point.value if isinstance(point.value, dict) else {}
             tier = str(value.get("tier") or ("news" if point in dataset.news else "supply_chain_search"))
             credibility = int(self._float_or_none(value.get("credibility")) or 50)
             relevance = int(self._float_or_none(value.get("relevance_score")) or 0)
-            return tier_rank.get(tier, 9), -(credibility + relevance)
+            text = f"{point.name} {value.get('summary') if isinstance(value, dict) else point.value}"
+            has_market_shock = any(word in str(text) for word in ("大跌", "崩", "血洗", "恐慌", "下跌", "砍單", "下修", "賣壓"))
+            shock_priority = 0 if has_market_shock else 1
+            tier_priority = 0 if has_market_shock else tier_rank.get(tier, 9)
+            return tier_priority, shock_priority, -(credibility + relevance)
         candidates.sort(key=rank)
         links: list[dict[str, Any]] = []
         seen: set[str] = set()
@@ -1639,6 +1658,7 @@ class PotentialStockService:
                     "tier": tier,
                     "tier_label": self._tier_label(tier),
                     "credibility": int(self._float_or_none(value.get("credibility")) or (60 if tier == "news" else 70)),
+                    "relevance": int(self._float_or_none(value.get("relevance_score")) or 0),
                 }
             )
             if len(links) >= 5:
@@ -1655,6 +1675,82 @@ class PotentialStockService:
             "news": "新聞",
         }
         return labels.get(tier, tier or "資料來源")
+
+    def _score_explanation(
+        self,
+        scores: dict[str, int],
+        request: PotentialStockRequest,
+        technical_summary: list[str],
+        fundamental_summary: list[str],
+        institutional_summary: list[str],
+        news_summary: list[str],
+        us_summary: list[str],
+        risks: list[str],
+    ) -> list[str]:
+        weights = self._score_weights(request)
+        rows = [
+            ("technical", "技術面", technical_summary),
+            ("fundamental", "基本面", fundamental_summary),
+            ("institutional", "籌碼面", institutional_summary),
+            ("smart_money_quality", "籌碼品質", []),
+            ("news", "新聞面", news_summary),
+            ("event_intel", "事件/股性情報", news_summary),
+            ("us_tech_leading", "美股科技領先", us_summary),
+            ("data_quality", "資料品質", []),
+        ]
+        explanations: list[str] = []
+        for key, label, evidence in rows:
+            if key not in scores:
+                continue
+            score = int(scores.get(key) or 0)
+            weight = weights.get(key, 0)
+            contribution = score * weight
+            tone = "加分" if score >= 65 else "中性" if score >= 50 else "扣分"
+            evidence_text = "；".join(str(item) for item in evidence[:2] if item) or self._score_default_reason(key, score)
+            explanations.append(f"{label} {score}/100，權重 {weight:.0%}，約貢獻 {contribution:.1f} 分，屬於{tone}因子。依據：{evidence_text}")
+        if risks:
+            explanations.append(f"風險折抵：{risks[0]}")
+        return explanations[:8]
+
+    def _score_default_reason(self, key: str, score: int) -> str:
+        if key == "smart_money_quality":
+            return "用技術、基本面與籌碼是否同向判斷是否只是短線資金腳印。"
+        if key == "data_quality":
+            return "用股價、法人、基本面、新聞與官方/供應鏈事件的覆蓋度判斷信心。"
+        if score >= 65:
+            return "該構面目前偏正向。"
+        if score < 50:
+            return "該構面目前資料不足或偏弱。"
+        return "該構面目前中性，尚需更多確認。"
+
+    def _score_weights(self, request: PotentialStockRequest) -> dict[str, float]:
+        weights_by_horizon = {
+            "short_weeks": {"technical": 0.28, "fundamental": 0.12, "institutional": 0.13, "smart_money_quality": 0.10, "news": 0.10, "event_intel": 0.09, "us_tech_leading": 0.10, "data_quality": 0.08},
+            "mid_term_3m": {"technical": 0.21, "fundamental": 0.20, "institutional": 0.14, "smart_money_quality": 0.12, "news": 0.09, "event_intel": 0.08, "us_tech_leading": 0.07, "data_quality": 0.09},
+            "long_6m": {"technical": 0.17, "fundamental": 0.28, "institutional": 0.13, "smart_money_quality": 0.11, "news": 0.06, "event_intel": 0.08, "us_tech_leading": 0.04, "data_quality": 0.13},
+            "multi_year": {"technical": 0.12, "fundamental": 0.36, "institutional": 0.09, "smart_money_quality": 0.10, "news": 0.05, "event_intel": 0.08, "us_tech_leading": 0.02, "data_quality": 0.18},
+        }
+        return weights_by_horizon.get(request.investment_horizon, weights_by_horizon["mid_term_3m"])
+
+    def _news_impact_summary(self, dataset: MarketDataset, related_news: list[str], news_risks: list[str], event_risks: list[str]) -> list[str]:
+        rows = [point for point in [*dataset.events, *dataset.news] if not point.missing]
+        shock_words = ("大跌", "崩", "血洗", "恐慌", "下跌", "砍單", "下修", "賣壓")
+        positive_words = ("CoWoS", "HBM", "NVIDIA", "輝達", "訂單", "產能", "擴產", "受惠", "創高", "調高")
+        shocks: list[str] = []
+        positives: list[str] = []
+        for point in rows:
+            value = point.value if isinstance(point.value, dict) else {"summary": point.value}
+            text = f"{point.name} {value.get('summary') or value}"
+            if any(word in text for word in shock_words):
+                shocks.append(f"負面/風險事件：{point.name}。這類訊息會壓低新聞與風險偏好分數，盤前若遇開低或流動性轉弱，不應只因技術趨勢偏多就追價。")
+            elif any(word.lower() in text.lower() for word in positive_words):
+                positives.append(f"正面/主題事件：{point.name}。此訊息與股性驅動因子有連動，支持事件面或供應鏈分數。")
+        summary = [*shocks[:2], *positives[:2]]
+        if news_risks or event_risks:
+            summary.append(f"新聞風險折抵：{'；'.join([*news_risks, *event_risks][:2])}")
+        if not summary and related_news:
+            summary.append(f"目前新聞多屬參考訊息，尚未形成明確加減分主軸；最相關標題：{related_news[0]}")
+        return summary[:5]
 
     def _data_score(self, dataset: MarketDataset) -> int:
         score = 100
@@ -2135,10 +2231,13 @@ class PotentialStockService:
     def _risks(self, scores: dict[str, int], dataset: MarketDataset) -> list[str]:
         return _potential_risks_v2(self, scores, dataset)
 
-    def _thesis(self, symbol: str, company_name: str, score: int, action: str, advantages: list[str], risks: list[str]) -> str:
+    def _thesis(self, symbol: str, company_name: str, score: int, action: str, advantages: list[str], risks: list[str], score_explanation: list[str] | None = None) -> str:
         risk = risks[0] if risks else "暫無重大風險訊號。"
         advantage = advantages[0] if advantages else "暫無明確單一優勢。"
-        return f"{symbol} {company_name} 分數 {score}/100，建議 {self._action_label(action)}。主要理由：{advantage} 主要風險：{risk}"
+        score_detail = ""
+        if score_explanation:
+            score_detail = f" 分數拆解：{score_explanation[0]}"
+        return f"{symbol} {company_name} 分數 {score}/100，建議 {self._action_label(action)}。主要理由：{advantage} 主要風險：{risk}{score_detail}"
 
     def _market_stance(self, analyses: list[PotentialStockAnalysis]) -> str:
         if not analyses:
@@ -2215,6 +2314,9 @@ class PotentialStockService:
         return f"""### {item.symbol} {item.company_name} - {self._action_label(item.action)}（{item.score}/100）
 投資論點：{item.thesis}
 
+分數拆解：
+{bullets(item.score_explanation)}
+
 基本面：
 {bullets(item.fundamental_summary)}
 
@@ -2235,6 +2337,9 @@ class PotentialStockService:
 
 相關新聞：
 {bullets(item.related_news)}
+
+新聞/事件衝擊：
+{bullets(item.news_impact_summary)}
 
 資料來源連結：
 {links}

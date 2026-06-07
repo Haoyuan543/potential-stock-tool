@@ -39,7 +39,7 @@ def main() -> None:
         "switchStorageButton",
         "storageStatus",
         "納入前一晚美股科技 / 半導體領先因子",
-        "potential-20260608-stock-profile-research-v1",
+        "potential-20260608-analysis-depth-v1",
     ]:
         assert marker in home.text
 
@@ -62,7 +62,7 @@ def main() -> None:
         assert marker in home.text
     assert home.text.index('id="dailyOutput"') < home.text.index('id="rankingOutput"')
     for marker in [
-        'APP_VERSION = "potential-20260608-stock-profile-research-v1"',
+        'APP_VERSION = "potential-20260608-analysis-depth-v1"',
         "loadCloudSettings",
         "saveSettingsToCloud",
         "/api/potential-stocks/settings",
@@ -128,7 +128,7 @@ def main() -> None:
 
     health = client.get("/health")
     assert health.status_code == 200
-    assert health.json()["backend_version"] == "potential-20260608-stock-profile-research-v1"
+    assert health.json()["backend_version"] == "potential-20260608-analysis-depth-v1"
     assert health.json()["storage"]["backend"] in {"local", "supabase"}
 
     storage_status = client.get("/api/storage/status")
@@ -217,6 +217,8 @@ def main() -> None:
     assert "smart_money_quality" in payload["analyses"][0]["component_scores"]
     assert "event_intel" in payload["analyses"][0]["component_scores"]
     assert "evidence_links" in payload["analyses"][0]
+    assert "score_explanation" in payload["analyses"][0]
+    assert "news_impact_summary" in payload["analyses"][0]
     analysis_text = " ".join(
         str(value)
         for field in ("risks", "related_news", "data_limitations")

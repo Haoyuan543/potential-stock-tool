@@ -34,7 +34,7 @@ const resetSettingsButton = document.querySelector("#resetSettingsButton");
 const storageBackendInput = document.querySelector("#storageBackendInput");
 const switchStorageButton = document.querySelector("#switchStorageButton");
 const storageStatus = document.querySelector("#storageStatus");
-const APP_VERSION = "potential-20260608-stock-profile-research-v1";
+const APP_VERSION = "potential-20260608-analysis-depth-v1";
 const SETTINGS_KEY = "potentialStockToolSettings";
 
 const universeSymbols = {
@@ -755,7 +755,9 @@ function renderRanking(analyses) {
             ${detailBlock("籌碼面", item.institutional_summary)}
             ${detailBlock("營運面", item.operating_summary)}
             ${detailBlock("近期優勢", item.advantages)}
+            ${detailBlock("分數拆解", item.score_explanation)}
             ${detailBlock("相關新聞", item.related_news)}
+            ${detailBlock("新聞/事件衝擊", item.news_impact_summary)}
             ${evidenceLinksBlock(item.evidence_links)}
             ${detailBlock("風險", item.risks)}
             ${detailBlock("資料限制", item.data_limitations)}
@@ -1182,7 +1184,7 @@ function sessionLabel(session) {
 }
 
 function componentLabel(key) {
-  return { technical: "技術面", fundamental: "基本面", institutional: "籌碼面", smart_money_quality: "籌碼品質", news: "新聞面", us_tech_leading: "美股領先", data_quality: "資料品質" }[key] || key;
+  return { technical: "技術面", fundamental: "基本面", institutional: "籌碼面", smart_money_quality: "籌碼品質", news: "新聞面", event_intel: "事件情報", us_tech_leading: "美股領先", data_quality: "資料品質" }[key] || key;
 }
 
 function formatInline(value) {
