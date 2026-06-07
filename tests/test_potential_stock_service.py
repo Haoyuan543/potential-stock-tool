@@ -1014,6 +1014,7 @@ class PotentialStockApiTest(unittest.TestCase):
                     "session": "market_hours",
                     "persist": "false",
                     "use_live_data": "false",
+                    "send_email": "false",
                     "token": "unit-test-secret",
                 },
             )
@@ -1021,6 +1022,8 @@ class PotentialStockApiTest(unittest.TestCase):
             payload = response.json()
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["report_session"], "market_hours")
+            self.assertEqual(payload["email"]["sent"], False)
+            self.assertEqual(payload["email"]["reason"], "send_email=false")
             self.assertEqual(payload["analysis_count"], 8)
             self.assertIn("markdown", payload)
         finally:

@@ -140,6 +140,7 @@ def main() -> None:
     assert "Delete actions are allowed only from localhost or with CRON_JOB_SECRET" in main_py
     assert "dashboard_basic_auth" in main_py
     assert "/api/storage/backend" in main_py
+    assert "send_potential_stock_report_email" in main_py
     storage_py = (ROOT / "backend" / "services" / "storage.py").read_text(encoding="utf-8")
     assert "SupabaseJsonStore" in storage_py
     assert "StoreProxy" in storage_py

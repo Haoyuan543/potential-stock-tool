@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     supabase_url: str = Field(default="", alias="SUPABASE_URL")
     supabase_service_role_key: str = Field(default="", alias="SUPABASE_SERVICE_ROLE_KEY")
     supabase_records_table: str = Field(default="potential_stock_records", alias="SUPABASE_RECORDS_TABLE")
+    smtp_host: str = Field(default="", alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_user: str = Field(default="", alias="SMTP_USER")
+    smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
+    smtp_starttls: bool = Field(default=True, alias="SMTP_STARTTLS")
+    report_email_from: str = Field(default="", alias="REPORT_EMAIL_FROM")
+    report_email_to: str = Field(default="", alias="REPORT_EMAIL_TO")
+    send_cron_email: bool = Field(default=True, alias="SEND_CRON_EMAIL")
 
 
 @lru_cache
