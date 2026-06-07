@@ -72,7 +72,10 @@ class SupabaseJsonStore:
 
     def _url(self) -> str:
         settings = self._settings()
-        return f"{settings.supabase_url.rstrip('/')}/rest/v1/{settings.supabase_records_table}"
+        base_url = settings.supabase_url.rstrip("/")
+        if base_url.endswith("/rest/v1"):
+            return f"{base_url}/{settings.supabase_records_table}"
+        return f"{base_url}/rest/v1/{settings.supabase_records_table}"
 
     def _raise_for_status(self, response: httpx.Response, action: str) -> None:
         if response.is_success:
