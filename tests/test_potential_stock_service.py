@@ -12,7 +12,7 @@ import backend.services.potential_stock_service as potential_stock_module
 import backend.services.research_collector as research_collector_module
 from backend.config import get_settings
 from backend.main import app
-from backend.models import DataPoint, MarketDataset, PotentialBacktestRequest, PotentialStockRequest, PriceBar
+from backend.models import DataPoint, MarketDataset, PaperPortfolio, PaperTradeDecision, PotentialBacktestRequest, PotentialStockRequest, PriceBar
 from backend.services.official_research import OfficialResearchFetcher
 from backend.services.potential_stock_cron import PotentialStockCronRunner
 from backend.services.potential_stock_service import PotentialStockService
@@ -941,6 +941,67 @@ class PotentialStockServiceTest(unittest.TestCase):
         self.assertEqual(summary["decision_reviews"][0]["decision_change"], "intraday_new_buy")
         self.assertIn("正報酬", summary["decision_reviews"][0]["review"])
         self.assertIn("盤中決策已回顧 1 筆", summary["summary"])
+
+    def test_postmarket_report_includes_operation_review_and_strategy_tuning(self) -> None:
+        request = PotentialStockRequest(symbols=["2330.TW"], report_session="post_market", initial_capital=1_000_000, buy_score=60, use_live_data=False, persist=True)
+        analysis = self.service._analyze_dataset(self._strong_dataset("2330"), request)
+        analysis.evidence_links = [
+            {"tier": "official_mops", "title": "台積電重大訊息", "url": "https://example.com/mops-tsmc"},
+            {"tier": "company_ir", "title": "台積電法說簡報", "url": "https://example.com/ir-tsmc"},
+        ]
+        analysis.related_news = ["台積電 AI 需求與先進製程維持強勢"]
+        portfolio = PaperPortfolio(
+            initial_capital=1_000_000,
+            cash=800_000,
+            invested_value=210_000,
+            total_value=1_010_000,
+            unrealized_pl=10_000,
+            return_pct=0.01,
+            holdings=[{"symbol": "2330.TW", "company_name": "台積電", "shares": 1000, "entry_price": 200, "market_price": 210, "market_value": 210_000}],
+            trades=[PaperTradeDecision(symbol="2330.TW", company_name="台積電", action="HOLD", price=210, reason="盤後追蹤")],
+        )
+        today = datetime.now(TW_TEST_TZ).date().isoformat()
+        self.service.history = lambda limit=2000, case_id=None: [
+            {
+                "generated_at": "2026-06-06T08:00:00+08:00",
+                "trading_date": today,
+                "report_session": "pre_market",
+                "analyses": [{"symbol": "2330.TW", "company_name": "台積電", "action": "BUY", "score": 78, "latest_price": 200}],
+                "portfolio": {"trades": [{"symbol": "2330.TW", "company_name": "台積電", "action": "PLAN_BUY", "price": 200}]},
+            },
+            {
+                "generated_at": "2026-06-06T10:00:00+08:00",
+                "trading_date": today,
+                "report_session": "market_hours",
+                "analyses": [{"symbol": "2330.TW", "company_name": "台積電", "action": "BUY", "score": 82, "latest_price": 205}],
+                "portfolio": {
+                    "trades": [
+                        {
+                            "symbol": "2330.TW",
+                            "company_name": "台積電",
+                            "action": "BUY",
+                            "price": 205,
+                            "reason": "盤中用當下股價加滑價，依盤前計畫成交。",
+                            "premarket_action": "PLAN_BUY",
+                            "premarket_score": 78,
+                            "intraday_score": 82,
+                            "decision_change": "follow_premarket_plan",
+                            "decision_basis": "盤中重新評估：目前分數 82/100。",
+                        }
+                    ]
+                },
+            },
+        ]
+
+        markdown = self.service._markdown(request, "偏多", [analysis], portfolio, [], case_id="default")
+
+        self.assertIn("盤後操作復盤", markdown)
+        self.assertIn("盤中決策回顧", markdown)
+        self.assertIn("資訊優勢檢查", markdown)
+        self.assertIn("策略調整建議", markdown)
+        self.assertIn("重要資訊連結", markdown)
+        self.assertIn("台積電重大訊息", markdown)
+        self.assertIn("回溯欄位", markdown)
 
     def test_duplicate_premarket_returns_immutable_record_without_fetching(self) -> None:
         today = datetime.now(TW_TEST_TZ).date().isoformat()

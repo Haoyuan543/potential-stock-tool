@@ -262,7 +262,7 @@ class PotentialStockService:
             portfolio = self._paper_trade_with_ledger(analyses, request, case_id=case_id)
         market_stance = self._market_stance(analyses)
         limitations = self._friendly_data_messages(sorted({item for analysis in analyses for item in analysis.data_limitations}))
-        markdown = self._markdown(request, market_stance, analyses, portfolio, limitations)
+        markdown = self._markdown(request, market_stance, analyses, portfolio, limitations, case_id=case_id)
         ai_summary = ""
         ai_mode = "disabled"
         ai_error = ""
@@ -2343,7 +2343,7 @@ class PotentialStockService:
             return "中性偏多"
         return "保守觀望"
 
-    def _markdown(self, request: PotentialStockRequest, market_stance: str, analyses: list[PotentialStockAnalysis], portfolio: PaperPortfolio, limitations: list[str]) -> str:
+    def _markdown(self, request: PotentialStockRequest, market_stance: str, analyses: list[PotentialStockAnalysis], portfolio: PaperPortfolio, limitations: list[str], case_id: str | None = None) -> str:
         session_title = {"pre_market": "盤前選股計畫", "market_hours": "盤中模擬交易", "post_market": "盤後結算"}[request.report_session]
         ranking = "\n".join(f"- {i + 1}. {a.symbol} {a.company_name}: {a.score}/100, {self._action_label(a.action)}, {self._risk_label(a.risk_level)}" for i, a in enumerate(analyses)) or "- 尚無候選"
         trades = "\n".join(f"- {t.symbol} {t.company_name} {self._action_label(t.action)} {t.shares} 股 @ {t.price or 'N/A'}：{t.reason}" for t in portfolio.trades) or "- 尚無操作"
@@ -2352,6 +2352,7 @@ class PotentialStockService:
         per_stock = "\n\n".join(self._stock_markdown(item) for item in analyses)
         limits = "\n".join(f"- {item}" for item in limitations) or "- 尚無重大資料限制"
         us_enabled = "啟用" if request.use_us_tech_leading else "停用"
+        postmarket_review = self._postmarket_review_markdown(request, market_stance, analyses, portfolio, limitations, case_id=case_id) if request.report_session == "post_market" else ""
         return f"""# 潛力股模擬操作報告
 產生時間：{datetime.now(TW_TZ).isoformat(timespec="seconds")}
 
@@ -2394,7 +2395,141 @@ class PotentialStockService:
 
 ## 資料限制
 {limits}
+{postmarket_review}
 """
+
+    def _postmarket_review_markdown(self, request: PotentialStockRequest, market_stance: str, analyses: list[PotentialStockAnalysis], portfolio: PaperPortfolio, limitations: list[str], case_id: str | None = None) -> str:
+        today = datetime.now(TW_TZ).date().isoformat()
+        pre = self._today_report_record("pre_market", case_id=case_id)
+        intraday = self._today_report_record("market_hours", case_id=case_id)
+        post = self._transient_report_record(request, market_stance, analyses, portfolio, limitations)
+        day = self._summarize_day({"date": today, "pre_market": pre, "market_hours": intraday, "post_market": post})
+        reviews = day.get("decision_reviews") or []
+        executed_trades = [trade for trade in (intraday or {}).get("portfolio", {}).get("trades", []) if trade.get("action") in {"BUY", "SELL"}]
+        decision_lines = "\n".join(
+            f"- {item['symbol']} {item['company_name']}：{self._decision_change_label(item.get('decision_change'))}；盤前 {item.get('premarket_score') or '--'} 分，盤中 {item.get('intraday_score') or '--'} 分，盤後 {item.get('post_score') or '--'} 分；{item.get('review') or '--'}"
+            for item in reviews[:12]
+        ) or "- 今日尚無可回顧的盤中決策。"
+        info = self._information_edge_summary(analyses, limitations)
+        info_lines = "\n".join(f"- {item}" for item in info)
+        tuning = self._strategy_tuning_suggestions(day, analyses, portfolio, request, info)
+        tuning_lines = "\n".join(f"- {item}" for item in tuning)
+        evidence_lines = self._top_evidence_markdown(analyses)
+        return f"""
+
+## 盤後操作復盤
+
+- 今日結論：{day.get('summary') or '尚無完整三階段資料。'}
+- 盤中實際買賣：{len(executed_trades)} 筆
+- 帳戶淨值：{portfolio.total_value:,.0f}
+- 今日持股市值：{portfolio.invested_value:,.0f}
+- 現金：{portfolio.cash:,.0f}
+- 累計報酬：{portfolio.return_pct * 100:.2f}%
+- 策略版本：{request.strategy_version}
+
+### 盤中決策回顧
+{decision_lines}
+
+### 資訊優勢檢查
+{info_lines}
+
+### 重要資訊連結
+{evidence_lines}
+
+### 策略調整建議
+{tuning_lines}
+
+### 回溯欄位
+- 買進門檻：{request.buy_score}/100
+- 觀察門檻：{request.watch_score}/100
+- 賣出門檻：{request.sell_score}/100
+- 最多持股：{request.max_positions}
+- 單股上限：{request.max_position_pct * 100:.1f}%
+- 停損 / 停利：{self._pct(-abs(request.stop_loss_pct))} / {self._pct(abs(request.take_profit_pct))}
+"""
+
+    def _transient_report_record(self, request: PotentialStockRequest, market_stance: str, analyses: list[PotentialStockAnalysis], portfolio: PaperPortfolio, limitations: list[str]) -> dict[str, Any]:
+        now = datetime.now(TW_TZ)
+        return {
+            "generated_at": now.isoformat(),
+            "trading_date": now.date().isoformat(),
+            "report_session": request.report_session,
+            "market_stance": market_stance,
+            "portfolio": portfolio.model_dump(mode="json"),
+            "analyses": [item.model_dump(mode="json") for item in analyses],
+            "data_limitations": limitations,
+            "strategy_version": request.strategy_version,
+        }
+
+    def _decision_change_label(self, value: Any) -> str:
+        return {
+            "follow_premarket_plan": "照盤前計畫",
+            "intraday_new_buy": "盤中新增買進",
+            "cancel_premarket_buy": "盤中取消買進",
+            "intraday_watch": "盤中改觀察",
+            "intraday_decision": "盤中決策",
+        }.get(str(value or ""), str(value or "--"))
+
+    def _information_edge_summary(self, analyses: list[PotentialStockAnalysis], limitations: list[str]) -> list[str]:
+        links = [link for item in analyses for link in item.evidence_links]
+        official = [link for link in links if str(link.get("tier") or "").startswith(("official", "exchange", "company"))]
+        news_count = sum(len(item.related_news or []) for item in analyses)
+        data_quality_scores = [int(item.component_scores.get("data_quality") or 0) for item in analyses if item.component_scores]
+        avg_data_quality = mean(data_quality_scores) if data_quality_scores else 0
+        summary = [
+            f"本次納入 {len(links)} 筆證據連結，其中官方/交易所/公司來源 {len(official)} 筆；顯示前五個高權重來源，其餘用於評分但不塞滿畫面。",
+            f"個股新聞與事件摘要共 {news_count} 則；平均資料品質 {avg_data_quality:.0f}/100。",
+        ]
+        if official:
+            summary.append("資訊可信度較高：已抓到第一手或接近第一手來源，可作為盤後策略檢討主依據。")
+        else:
+            summary.append("資訊可信度不足：官方重大訊息、交易所公告或公司 IR 缺口偏大，明日應降低單筆倉位或提高買進門檻。")
+        if limitations:
+            summary.append(f"資料限制 {len(limitations)} 項，盤後檢討需標記為部分驗證，避免把資料不足誤判成策略有效。")
+        return summary
+
+    def _top_evidence_markdown(self, analyses: list[PotentialStockAnalysis]) -> str:
+        scored: list[tuple[int, dict[str, Any], PotentialStockAnalysis]] = []
+        tier_score = {"official_mops": 100, "company_ir": 95, "exchange": 90, "official": 88, "institutional": 72, "news": 60, "search": 45}
+        for analysis in analyses:
+            for link in analysis.evidence_links or []:
+                scored.append((tier_score.get(str(link.get("tier") or ""), 50), link, analysis))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        seen: set[str] = set()
+        lines: list[str] = []
+        for _, link, analysis in scored:
+            url = str(link.get("url") or "")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            title = str(link.get("title") or link.get("name") or url)
+            lines.append(f"- {analysis.symbol} {analysis.company_name}：[{title}]({url})")
+            if len(lines) >= 5:
+                break
+        return "\n".join(lines) or "- 本次沒有足夠的可連結證據；盤後判斷應降低信心。"
+
+    def _strategy_tuning_suggestions(self, day: dict[str, Any], analyses: list[PotentialStockAnalysis], portfolio: PaperPortfolio, request: PotentialStockRequest, info: list[str]) -> list[str]:
+        reviews = day.get("decision_reviews") or []
+        negative_buys = [item for item in reviews if item.get("result_return") is not None and item.get("result_return") < 0 and item.get("decision_change") in {"follow_premarket_plan", "intraday_new_buy"}]
+        positive_new_buys = [item for item in reviews if item.get("result_return") is not None and item.get("result_return") > 0 and item.get("decision_change") == "intraday_new_buy"]
+        cancelled = [item for item in reviews if item.get("decision_change") == "cancel_premarket_buy"]
+        avg_score = mean([item.score for item in analyses]) if analyses else 0
+        suggestions: list[str] = []
+        if negative_buys:
+            suggestions.append(f"今日 {len(negative_buys)} 筆買進到盤後為負，先檢討買點與追價條件；若連續兩天出現，建議買進門檻提高 3 分或滑價假設加嚴。")
+        if positive_new_buys:
+            suggestions.append(f"盤中新增買進有 {len(positive_new_buys)} 筆短線正向，代表盤中重新評估有價值；可保留盤中新增功能，但仍需觀察 5 個交易日。")
+        if cancelled:
+            suggestions.append(f"盤中取消 {len(cancelled)} 筆盤前買進；盤後需觀察隔日是否反彈，避免策略過度保守。")
+        if avg_score < request.watch_score:
+            suggestions.append("候選平均分低於觀察門檻，明日偏防守；不急著提高持股數。")
+        if portfolio.cash < portfolio.initial_capital * 0.1:
+            suggestions.append("現金低於 10%，明日新增買進需優先比較換股分差，避免資金過度集中。")
+        if any("資訊可信度不足" in item for item in info):
+            suggestions.append("資料源不足時，優先補 MOPS、TWSE/TPEx、公司 IR 與供應鏈關鍵字證據，再讓分數進入買進決策。")
+        if not suggestions:
+            suggestions.append("今日策略暫無明顯失準；維持目前門檻，重點觀察持股與候選是否持續優於 benchmark。")
+        return suggestions
 
     def _stock_markdown(self, item: PotentialStockAnalysis) -> str:
         def bullets(values: list[str]) -> str:
