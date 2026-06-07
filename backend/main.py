@@ -76,6 +76,7 @@ async def dashboard_basic_auth(request: Request, call_next):
         settings.dashboard_username,
         settings.dashboard_password,
     ):
+        request.state.dashboard_authenticated = True
         return await call_next(request)
     return Response(
         status_code=401,
@@ -135,6 +136,8 @@ def _authorize_cron(token: str = "", header_token: str = "") -> None:
 def _authorize_local_or_secret(request: Request, token: str = "", header_token: str = "") -> None:
     host = (request.client.host if request.client else "") or ""
     if host in {"127.0.0.1", "::1", "localhost", "testclient"}:
+        return
+    if bool(getattr(request.state, "dashboard_authenticated", False)):
         return
     secret = get_settings().cron_job_secret
     provided = token or header_token

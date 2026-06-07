@@ -1044,6 +1044,28 @@ class PotentialStockApiTest(unittest.TestCase):
         self.assertFalse(_valid_basic_auth(f"Basic {invalid}", "admin", "unit-test-password"))
         self.assertFalse(_valid_basic_auth("", "admin", "unit-test-password"))
 
+    def test_dashboard_basic_auth_allows_protected_delete_actions(self) -> None:
+        old_username = os.environ.get("DASHBOARD_USERNAME")
+        old_password = os.environ.get("DASHBOARD_PASSWORD")
+        os.environ["DASHBOARD_USERNAME"] = "admin"
+        os.environ["DASHBOARD_PASSWORD"] = "unit-test-password"
+        get_settings.cache_clear()
+        try:
+            client = TestClient(app)
+            response = client.delete("/api/potential-stocks/cases/default", auth=("admin", "unit-test-password"))
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("deleted_case_id", response.json())
+        finally:
+            if old_username is None:
+                os.environ.pop("DASHBOARD_USERNAME", None)
+            else:
+                os.environ["DASHBOARD_USERNAME"] = old_username
+            if old_password is None:
+                os.environ.pop("DASHBOARD_PASSWORD", None)
+            else:
+                os.environ["DASHBOARD_PASSWORD"] = old_password
+            get_settings.cache_clear()
+
     def test_dashboard_basic_auth_protects_panel_when_password_is_set(self) -> None:
         old_username = os.environ.get("DASHBOARD_USERNAME")
         old_password = os.environ.get("DASHBOARD_PASSWORD")
