@@ -38,8 +38,8 @@ def main() -> None:
         "storageBackendInput",
         "switchStorageButton",
         "storageStatus",
-        "納入前一晚美股科技/半導體領先因子",
-        "potential-20260607-settings-controls-v2",
+        "納入前一晚美股科技 / 半導體領先因子",
+        "potential-20260607-pro-workbench-v2",
     ]:
         assert marker in home.text
 
@@ -49,7 +49,7 @@ def main() -> None:
         assert marker not in home.text
         assert marker not in app_js
     for marker in [
-        "潛力股模擬操作工具",
+        "潛力股模擬操作工作台",
         "只抓潛力股參考分析",
         "盤前進行分析選股",
         "盤中執行模擬交易",
@@ -62,7 +62,7 @@ def main() -> None:
         assert marker in home.text
     assert home.text.index('id="dailyOutput"') < home.text.index('id="rankingOutput"')
     for marker in [
-        'APP_VERSION = "potential-20260607-settings-controls-v2"',
+        'APP_VERSION = "potential-20260607-pro-workbench-v2"',
         "loadCloudSettings",
         "saveSettingsToCloud",
         "/api/potential-stocks/settings",
@@ -81,7 +81,7 @@ def main() -> None:
         "componentLabel",
         "data-delete-all-cases",
         "data-delete-case-id",
-        'fetch("/api/potential-stocks/cases"',
+        'fetch(apiUrl("/api/potential-stocks/cases"',
         'method: "DELETE"',
         "Promise.all",
         "scrollIntoView",

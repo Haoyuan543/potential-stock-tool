@@ -34,7 +34,7 @@ const resetSettingsButton = document.querySelector("#resetSettingsButton");
 const storageBackendInput = document.querySelector("#storageBackendInput");
 const switchStorageButton = document.querySelector("#switchStorageButton");
 const storageStatus = document.querySelector("#storageStatus");
-const APP_VERSION = "potential-20260607-settings-controls-v2";
+const APP_VERSION = "potential-20260607-pro-workbench-v2";
 const SETTINGS_KEY = "potentialStockToolSettings";
 
 const universeSymbols = {
@@ -138,7 +138,7 @@ checkHealth();
 
 async function checkHealth() {
   try {
-    const response = await fetch("/health");
+    const response = await fetch(apiUrl("/health"));
     const json = await response.json();
     const backendVersion = json.backend_version ? ` | 後端 ${json.backend_version}` : "";
     apiStatus.textContent = json.ok ? `服務正常 | 前端 ${APP_VERSION}${backendVersion}` : `服務異常 | 前端 ${APP_VERSION}${backendVersion}`;
@@ -161,7 +161,7 @@ async function checkHealth() {
 async function loadStorageStatus() {
   if (!storageBackendInput || !storageStatus) return;
   try {
-    const response = await fetch("/api/storage/status");
+    const response = await fetch(apiUrl("/api/storage/status"));
     if (!response.ok) throw new Error(await response.text());
     const result = await response.json();
     storageBackendInput.value = result.backend || "local";
@@ -180,7 +180,7 @@ async function switchStorageBackend() {
   switchStorageButton.disabled = true;
   showActionStatus(`正在切換資料來源到 ${backend === "supabase" ? "Supabase 雲端資料" : "本機資料"}...`, "partial");
   try {
-    const response = await fetch("/api/storage/backend", {
+    const response = await fetch(apiUrl("/api/storage/backend"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ backend })
@@ -213,7 +213,7 @@ async function runPotentialStocks(reportSession, options = {}) {
   showNotice(`${label}處理中，正在取得資料並產生分析...`, "partial");
   showActionStatus(`${label}處理中...`, "partial");
   try {
-    const response = await fetch("/api/potential-stocks", {
+    const response = await fetch(apiUrl("/api/potential-stocks"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(readInputs(reportSession, options))
@@ -255,7 +255,7 @@ async function runPotentialStocks(reportSession, options = {}) {
 async function loadDailyStatus(showSuccess = false, caseId = selectedCaseId) {
   try {
     const query = caseId ? `?limit=30&case_id=${encodeURIComponent(caseId)}` : "?limit=30";
-    const response = await fetch(`/api/potential-stocks/daily-status${query}`);
+    const response = await fetch(apiUrl(`/api/potential-stocks/daily-status${query}`));
     if (!response.ok) throw new Error(await response.text());
     const result = await response.json();
     renderDailyTable(result.days || [], result.active_case_id || caseId || "");
@@ -267,7 +267,7 @@ async function loadDailyStatus(showSuccess = false, caseId = selectedCaseId) {
 
 async function loadCases() {
   try {
-    const response = await fetch("/api/potential-stocks/cases");
+    const response = await fetch(apiUrl("/api/potential-stocks/cases"));
     if (!response.ok) throw new Error(await response.text());
     const result = await response.json();
     activeCaseId = result.active_case_id || "";
@@ -282,7 +282,7 @@ async function loadCases() {
 async function loadLedger(caseId = selectedCaseId) {
   try {
     const query = caseId ? `?limit=80&case_id=${encodeURIComponent(caseId)}` : "?limit=80";
-    const response = await fetch(`/api/potential-stocks/ledger${query}`);
+    const response = await fetch(apiUrl(`/api/potential-stocks/ledger${query}`));
     if (!response.ok) throw new Error(await response.text());
     const result = await response.json();
     renderLedgerTable(result.records || [], caseId || activeCaseId || "");
@@ -296,7 +296,7 @@ async function loadBranchSummary(caseId = selectedCaseId || activeCaseId) {
   showActionStatus(`正在產生支線總結 ${target || "default"}...`, "partial");
   try {
     const query = target ? `?case_id=${encodeURIComponent(target)}` : "";
-    const response = await fetch(`/api/potential-stocks/branch-summary${query}`);
+    const response = await fetch(apiUrl(`/api/potential-stocks/branch-summary${query}`));
     if (!response.ok) throw new Error(await response.text());
     const result = await response.json();
     renderBranchSummary(result);
@@ -342,7 +342,7 @@ async function resetCase() {
   resetConfirmUntil = 0;
   setLoading(true, "重置案件");
   try {
-    const response = await fetch("/api/potential-stocks/cases/reset", {
+    const response = await fetch(apiUrl("/api/potential-stocks/cases/reset"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ note: "手動重置，開始新的模擬追蹤。" })
@@ -369,7 +369,7 @@ async function deleteCase(caseId) {
   if (!window.confirm(`確定刪除案件 ${target}？此動作會刪除該案件的每日紀錄與帳本，無法復原。`)) return;
   showActionStatus(`正在刪除案件 ${target}...`, "partial");
   try {
-    const response = await fetch(`/api/potential-stocks/cases/${encodeURIComponent(target)}`, { method: "DELETE" });
+    const response = await fetch(apiUrl(`/api/potential-stocks/cases/${encodeURIComponent(target)}`), { method: "DELETE" });
     if (!response.ok) throw new Error(await response.text());
     const result = await response.json();
     selectedCaseId = result.active_case_id || "";
@@ -387,7 +387,7 @@ async function deleteAllCases() {
   if (!window.confirm("確定刪除全部潛力股資料？這會清除所有測試與正式案件的每日紀錄和帳本，無法復原。")) return;
   showActionStatus("正在刪除全部資料...", "partial");
   try {
-    const response = await fetch("/api/potential-stocks/cases", { method: "DELETE" });
+    const response = await fetch(apiUrl("/api/potential-stocks/cases"), { method: "DELETE" });
     if (!response.ok) throw new Error(await response.text());
     const result = await response.json();
     selectedCaseId = result.active_case_id || "default";
@@ -405,7 +405,7 @@ async function switchTrackedCase(caseId) {
   const target = caseId || "default";
   showActionStatus(`正在切換目前追蹤支線 ${target}...`, "partial");
   try {
-    const response = await fetch("/api/potential-stocks/cases/switch", {
+    const response = await fetch(apiUrl("/api/potential-stocks/cases/switch"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ case_id: target })
@@ -508,7 +508,7 @@ async function saveSettingsToCloud() {
   const settings = collectSettings();
   try {
     window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    const response = await fetch("/api/potential-stocks/settings", {
+    const response = await fetch(apiUrl("/api/potential-stocks/settings"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(readInputs("pre_market", { persist: true }))
