@@ -807,6 +807,23 @@ renderLedgerTable = function(records, caseId = "") {
   `;
 };
 
+friendlyError = function(message) {
+  const text = String(message || "");
+  try {
+    const parsed = JSON.parse(text);
+    if (typeof parsed.detail === "string") return parsed.detail;
+    if (Array.isArray(parsed.detail)) return parsed.detail.map((item) => item.msg || JSON.stringify(item)).join("；");
+  } catch (_) {
+    // Keep the original text fallback below.
+  }
+  if (text.includes("Supabase") && text.includes("failed")) return text;
+  if (text.includes("Internal Server Error")) return "後端發生錯誤，請重新整理後查看 /health 的 storage.supabase_probe，或到 Render Logs 看詳細原因。";
+  if (text.includes("report_session") && text.includes("market_hours")) {
+    return "後端尚未接受盤中參數 market_hours，請確認雲端已部署最新版。";
+  }
+  return text || "未知錯誤";
+};
+
 renderCaseTable = function(cases, active, current = "") {
   if (!cases.length) {
     caseOutput.innerHTML = '<p class="empty-state">尚無案件資料。</p>';

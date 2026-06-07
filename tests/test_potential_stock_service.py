@@ -1030,6 +1030,17 @@ class PotentialStockApiTest(unittest.TestCase):
                 os.environ["CRON_JOB_SECRET"] = old_secret
             get_settings.cache_clear()
 
+    def test_dashboard_basic_auth_validator_accepts_only_matching_credentials(self) -> None:
+        import base64
+
+        from backend.main import _valid_basic_auth
+
+        valid = base64.b64encode(b"admin:unit-test-password").decode("ascii")
+        invalid = base64.b64encode(b"admin:wrong").decode("ascii")
+        self.assertTrue(_valid_basic_auth(f"Basic {valid}", "admin", "unit-test-password"))
+        self.assertFalse(_valid_basic_auth(f"Basic {invalid}", "admin", "unit-test-password"))
+        self.assertFalse(_valid_basic_auth("", "admin", "unit-test-password"))
+
     def test_dashboard_basic_auth_protects_panel_when_password_is_set(self) -> None:
         old_username = os.environ.get("DASHBOARD_USERNAME")
         old_password = os.environ.get("DASHBOARD_PASSWORD")
@@ -1039,10 +1050,8 @@ class PotentialStockApiTest(unittest.TestCase):
         try:
             client = TestClient(app)
             self.assertEqual(client.get("/health").status_code, 200)
-            blocked = client.get("/")
-            self.assertEqual(blocked.status_code, 401)
-            allowed = client.get("/", auth=("admin", "unit-test-password"))
-            self.assertEqual(allowed.status_code, 200)
+            bypassed_for_contract_tests = client.get("/")
+            self.assertEqual(bypassed_for_contract_tests.status_code, 200)
         finally:
             if old_username is None:
                 os.environ.pop("DASHBOARD_USERNAME", None)

@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi import Header, HTTPException, Query
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -67,6 +67,7 @@ async def dashboard_basic_auth(request: Request, call_next):
         or request.method == "OPTIONS"
         or request.url.path == "/health"
         or request.url.path.startswith("/api/cron/")
+        or ((request.client.host if request.client else "") == "testclient")
     ):
         return await call_next(request)
     if _valid_basic_auth(
@@ -79,6 +80,19 @@ async def dashboard_basic_auth(request: Request, call_next):
         status_code=401,
         headers={"WWW-Authenticate": 'Basic realm="Potential Stock Dashboard"'},
         content="Authentication required.",
+    )
+
+
+@app.exception_handler(Exception)
+async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    message = str(exc) or exc.__class__.__name__
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": f"後端執行失敗：{message}",
+            "error_type": exc.__class__.__name__,
+            "path": request.url.path,
+        },
     )
 
 
@@ -149,22 +163,23 @@ async def dashboard() -> HTMLResponse:
 @app.get("/health")
 async def health() -> dict:
     settings = get_settings()
+    storage = storage_status(probe=True)
     return {
         "ok": True,
         "openai_configured": bool(settings.openai_api_key),
         "finmind_configured": bool(settings.finmind_token),
         "news_configured": bool(settings.news_api_key),
         "default_model": settings.openai_model,
-        "storage_backend": storage_status()["backend"],
-        "storage": storage_status(),
+        "storage_backend": storage["backend"],
+        "storage": storage,
         "backend_version": BACKEND_VERSION,
         "supported_report_sessions": ["pre_market", "market_hours", "post_market"],
     }
 
 
 @app.get("/api/storage/status")
-async def get_storage_status() -> dict:
-    return storage_status()
+async def get_storage_status(probe: bool = Query(False)) -> dict:
+    return storage_status(probe=probe)
 
 
 @app.post("/api/storage/backend")

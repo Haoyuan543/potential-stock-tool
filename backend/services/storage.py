@@ -47,6 +47,10 @@ class JsonlStore:
         self.path.write_text("", encoding="utf-8")
 
 
+class StorageError(RuntimeError):
+    pass
+
+
 class SupabaseJsonStore:
     def __init__(self, store_name: str) -> None:
         self.store_name = store_name
@@ -70,6 +74,21 @@ class SupabaseJsonStore:
         settings = self._settings()
         return f"{settings.supabase_url.rstrip('/')}/rest/v1/{settings.supabase_records_table}"
 
+    def _raise_for_status(self, response: httpx.Response, action: str) -> None:
+        if response.is_success:
+            return
+        detail = response.text.strip()
+        if len(detail) > 500:
+            detail = detail[:500] + "..."
+        raise StorageError(f"Supabase {action} failed: HTTP {response.status_code}: {detail}")
+
+    def probe(self) -> dict[str, Any]:
+        params = {"select": "id", "limit": "1"}
+        with httpx.Client(timeout=10) as client:
+            response = client.get(self._url(), headers=self._headers(), params=params)
+            self._raise_for_status(response, "probe")
+        return {"ok": True, "table": self._settings().supabase_records_table}
+
     def append(self, record: dict[str, Any]) -> None:
         now = datetime.now(timezone.utc).isoformat()
         payload = {
@@ -79,7 +98,7 @@ class SupabaseJsonStore:
         }
         with httpx.Client(timeout=20) as client:
             response = client.post(self._url(), headers=self._headers(), json=payload)
-            response.raise_for_status()
+            self._raise_for_status(response, "insert")
 
     def all(self) -> list[dict[str, Any]]:
         params = {
@@ -89,7 +108,7 @@ class SupabaseJsonStore:
         }
         with httpx.Client(timeout=20) as client:
             response = client.get(self._url(), headers=self._headers(), params=params)
-            response.raise_for_status()
+            self._raise_for_status(response, "select")
         rows = response.json()
         return [row.get("payload") or {} for row in rows]
 
@@ -108,13 +127,13 @@ class SupabaseJsonStore:
         ]
         with httpx.Client(timeout=20) as client:
             response = client.post(self._url(), headers=self._headers(), json=payloads)
-            response.raise_for_status()
+            self._raise_for_status(response, "bulk insert")
 
     def clear(self) -> None:
         params = {"store_name": f"eq.{self.store_name}"}
         with httpx.Client(timeout=20) as client:
             response = client.delete(self._url(), headers=self._headers(), params=params)
-            response.raise_for_status()
+            self._raise_for_status(response, "delete")
 
 
 _runtime_storage_backend: str | None = None
@@ -140,16 +159,22 @@ def set_runtime_storage_backend(backend: str | None) -> str:
     return _runtime_storage_backend
 
 
-def storage_status() -> dict[str, Any]:
+def storage_status(probe: bool = False) -> dict[str, Any]:
     settings = get_settings()
     backend = get_runtime_storage_backend()
-    return {
+    status: dict[str, Any] = {
         "backend": backend,
         "env_default_backend": _normalize_backend(settings.storage_backend),
         "runtime_override": _runtime_storage_backend,
         "supabase_configured": bool(settings.supabase_url and settings.supabase_service_role_key),
         "supabase_records_table": settings.supabase_records_table,
     }
+    if probe and backend == "supabase":
+        try:
+            status["supabase_probe"] = SupabaseJsonStore("health_probe").probe()
+        except Exception as exc:
+            status["supabase_probe"] = {"ok": False, "error": str(exc)}
+    return status
 
 
 class StoreProxy:

@@ -144,6 +144,9 @@ def main() -> None:
     assert "SupabaseJsonStore" in storage_py
     assert "StoreProxy" in storage_py
     assert "set_runtime_storage_backend" in storage_py
+    assert "StorageError" in storage_py
+    assert "supabase_probe" in storage_py
+    assert "後端發生錯誤" in app_js
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
     assert "STORAGE_BACKEND" in env_example
     assert "DASHBOARD_PASSWORD" in env_example
