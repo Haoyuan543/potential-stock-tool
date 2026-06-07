@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 
-set PORT=8010
+set PORT=8011
 set HOST=127.0.0.1
 
 if not exist ".venv\Scripts\python.exe" (
@@ -22,9 +22,13 @@ if not exist ".env" (
 echo Starting AI Alpha Research Platform on http://%HOST%:%PORT%
 echo.
 
-start "AI Alpha Backend" cmd /k ".venv\Scripts\python.exe -m uvicorn backend.main:app --host %HOST% --port %PORT%"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$conns = Get-NetTCPConnection -LocalPort %PORT% -State Listen -ErrorAction SilentlyContinue; foreach ($conn in $conns) { Write-Host ('Stopping old port %PORT% PID ' + $conn.OwningProcess); Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue }"
+
+start "AI Alpha Backend" cmd /k ".venv\Scripts\python.exe -m uvicorn backend.main:app --host %HOST% --port %PORT% 1>>uvicorn-%PORT%.out.log 2>>uvicorn-%PORT%.err.log"
 
 timeout /t 5 /nobreak >nul
+echo Health check:
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { (Invoke-WebRequest -UseBasicParsing http://%HOST%:%PORT%/health).Content } catch { $_.Exception.Message }"
 start "" "http://%HOST%:%PORT%"
 
 echo Browser should open at http://%HOST%:%PORT%

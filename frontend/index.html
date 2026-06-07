@@ -3,127 +3,217 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>即時 AI 投資分析工具</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <title>潛力股模擬操作工具</title>
+  <link rel="stylesheet" href="/static/styles.css?v=potential-20260607-settings">
 </head>
 <body>
   <main class="app-shell">
-    <section class="tool-panel">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">即時 AI 投資研究員</p>
-          <h1>即時 AI 投資分析工具</h1>
-          <p>輸入股票代號後按下「立即分析」，系統才會抓取最新資料並交給 AI 分析。不自動下單，不自動通知。</p>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">本機潛力股研究與模擬帳本</p>
+        <h1>潛力股模擬操作工具</h1>
+        <p>盤前產生選股計畫，盤中依當下價格執行模擬交易，盤後結算並保留不可變紀錄。預設偏好半導體，可同時納入其他股票池。</p>
+      </div>
+      <div id="apiStatus" class="status-pill">檢查 API 中...</div>
+    </header>
+
+    <section id="notice" class="notice hidden"></section>
+
+    <section id="usageHelp" class="usage-help" aria-label="使用說明">
+      <details open>
+        <summary>使用說明</summary>
+        <div class="help-grid">
+          <article class="help-card">
+            <strong>08:30 盤前</strong>
+            <span>產生今日候選股、預計買進清單與資金配置，不會真正扣帳。</span>
+          </article>
+          <article class="help-card">
+            <strong>09:30 盤中</strong>
+            <span>只執行今日盤前已規劃的買進，使用當下價格加滑價，寫入正式模擬帳本。</span>
+          </article>
+          <article class="help-card">
+            <strong>13:30 盤後</strong>
+            <span>更新持倉市值、停利停損與績效，不新增盤前沒有規劃的買進。</span>
+          </article>
+          <article class="help-card">
+            <strong>參考掃描</strong>
+            <span>只抓潛力股排行與分析理由，不寫入每日資料，也不影響帳本。</span>
+          </article>
+          <article class="help-card">
+            <strong>資金鎖定</strong>
+            <span>新案件開始前可調整模擬資金；一旦產生紀錄就鎖定，需重置案件才可改新資金。</span>
+          </article>
+          <article class="help-card">
+            <strong>案件管理</strong>
+            <span>重置會保留舊案件但不再追蹤；測試資料可用單筆刪除或全部刪除清掉。</span>
+          </article>
         </div>
-        <div id="apiStatus" class="status-pill">檢查服務中...</div>
-      </header>
-
-      <section id="modeNotice" class="notice hidden"></section>
-
-      <section class="controls">
-        <label>股票代號
-          <input id="symbolInput" value="2603.TW" placeholder="例如 2603.TW">
-        </label>
-        <label>分析模式
-          <select id="modeInput">
-            <option value="personalized" selected>個人化模式</option>
-            <option value="general">一般模式</option>
-          </select>
-        </label>
-        <label>模型
-          <select id="modelInput">
-            <option value="">使用 .env 預設模型</option>
-            <option value="gpt-5.5">gpt-5.5：完整分析</option>
-            <option value="gpt-5.5-pro">gpt-5.5-pro：深度分析</option>
-            <option value="gpt-5">gpt-5：快速分析</option>
-          </select>
-        </label>
-        <button id="analyzeButton" type="button">立即分析</button>
-      </section>
-
-      <details class="advanced-panel">
-        <summary>進階資料補充區</summary>
-        <p class="advanced-note">系統會優先自動抓資料。這裡只用於補充無法穩定取得的航運數字，或你希望 AI 一起判斷的事件。</p>
-        <section class="manual-grid">
-          <label>SCFI 最新值<input id="scfiLatest" inputmode="decimal" placeholder="可留空"></label>
-          <label>SCFI 週變化 %<input id="scfiWeeklyChange" inputmode="decimal" placeholder="可留空"></label>
-          <label>SCFI 連續上漲/下跌週數<input id="scfiStreakWeeks" inputmode="decimal" placeholder="可留空"></label>
-          <label>美西線運價<input id="usWestRate" inputmode="decimal" placeholder="可留空"></label>
-          <label>美東線運價<input id="usEastRate" inputmode="decimal" placeholder="可留空"></label>
-          <label>歐洲線運價<input id="europeRate" inputmode="decimal" placeholder="可留空"></label>
-          <label>美西線週變化 %<input id="usWestWeeklyChange" inputmode="decimal" placeholder="可留空"></label>
-          <label>美東線週變化 %<input id="usEastWeeklyChange" inputmode="decimal" placeholder="可留空"></label>
-          <label>歐洲線週變化 %<input id="europeWeeklyChange" inputmode="decimal" placeholder="可留空"></label>
-          <label>紅海狀態<input id="redSeaStatus" placeholder="例如：緊張 / 改善 / 正常化"></label>
-          <label class="wide-field">人工補充脈絡<textarea id="manualContext" placeholder="公司公告、法說重點、新聞摘要或你想讓 AI 一起判斷的資料"></textarea></label>
-        </section>
       </details>
+    </section>
 
-      <section id="loadingBox" class="loading hidden">
-        <div class="spinner"></div>
-        <span>分析中，已花費 <strong id="elapsedTimer">0.0</strong> 秒</span>
-      </section>
-
-      <section class="summary-grid">
-        <article><span>股價資料</span><strong id="stockStatus">--</strong></article>
-        <article><span>法人籌碼</span><strong id="institutionalStatus">--</strong></article>
-        <article><span>航運運價</span><strong id="freightStatus">--</strong></article>
-        <article><span>新聞事件</span><strong id="newsStatus">--</strong></article>
-      </section>
-
-      <section id="summaryPanel" class="summary-panel hidden">
-        <div class="card-header"><h2>重點總結</h2></div>
-        <div id="summaryOutput" class="summary-output"></div>
-      </section>
-
-      <section id="freshnessPanel" class="summary-panel hidden">
-        <div class="card-header"><h2>資料新鮮度</h2></div>
-        <div id="freshnessOutput" class="summary-output"></div>
-      </section>
-
-      <section class="output-grid">
-        <article class="report-card">
-          <div class="card-header">
-            <h2>AI 分析報告</h2>
-            <div class="report-actions">
-              <button id="copyButton" type="button">複製報告</button>
-              <button id="downloadHtmlButton" type="button" disabled>下載 HTML</button>
-            </div>
+    <section class="control-panel">
+      <label>
+        模擬資金
+        <input id="capitalInput" type="number" min="10000" step="10000" value="3000000">
+        <small id="capitalLockHint" class="field-hint">新案件開始前可調整；開始記錄後會鎖定。</small>
+      </label>
+      <div class="universe-field">
+        <span class="field-title">搜尋範圍</span>
+        <details class="universe-menu">
+          <summary><span id="universeSummary">半導體</span></summary>
+          <div class="universe-menu-options">
+            <label class="toggle-row"><input class="universe-option" type="checkbox" value="semiconductor" checked> 半導體</label>
+            <label class="toggle-row"><input class="universe-option" type="checkbox" value="electronics"> AI / 電子股</label>
+            <label class="toggle-row"><input class="universe-option" type="checkbox" value="industrial"> 傳產 / 航運</label>
+            <label class="toggle-row"><input class="universe-option" type="checkbox" value="financial"> 金融股</label>
+            <label class="toggle-row"><input class="universe-option" type="checkbox" value="custom"> 自訂股票池</label>
           </div>
-          <div id="reportOutput" class="markdown-output">
-            <p class="empty-state">尚未開始分析。</p>
-          </div>
-        </article>
+        </details>
+      </div>
+      <label class="legacy-universe hidden">
+        搜尋範圍
+        <select id="universeInput">
+          <option value="semiconductor" selected>半導體</option>
+          <option value="electronics">AI / 電子股</option>
+          <option value="industrial">傳產 / 航運</option>
+          <option value="financial">金融股</option>
+          <option value="custom">自訂股票池</option>
+        </select>
+      </label>
+      <label class="symbols-field">
+        股票池
+        <textarea id="symbolsInput" spellcheck="false">2330.TW, 2454.TW, 2303.TW, 2379.TW, 3034.TW, 3711.TW, 3443.TW, 3661.TW</textarea>
+      </label>
+      <label>最多持股 <input id="maxPositionsInput" type="number" min="1" max="30" step="1" value="5"></label>
+      <label>單股上限 % <input id="positionCapInput" type="number" min="1" max="50" step="1" value="20"></label>
+      <label>買進門檻 <input id="buyScoreInput" type="number" min="1" max="100" step="1" value="70"></label>
+      <label>
+        風險/報酬偏好
+        <select id="riskRewardInput">
+          <option value="conservative">低風險 / 低報酬</option>
+          <option value="balanced" selected>中風險 / 中報酬</option>
+          <option value="aggressive">高風險 / 高報酬</option>
+        </select>
+      </label>
+      <label>
+        投資週期
+        <select id="horizonInput">
+          <option value="short_weeks">短線（數週）</option>
+          <option value="mid_term_3m" selected>中長線（約 3 個月）</option>
+          <option value="long_6m">長線（約半年）</option>
+          <option value="multi_year">長期（數年）</option>
+        </select>
+      </label>
+      <label>觀察門檻 <input id="watchScoreInput" type="number" min="1" max="100" step="1" value="55"></label>
+      <label>賣出門檻 <input id="sellScoreInput" type="number" min="1" max="100" step="1" value="50"></label>
+      <label>停損 % <input id="stopLossInput" type="number" min="1" max="50" step="1" value="8"></label>
+      <label>停利 % <input id="takeProfitInput" type="number" min="1" max="100" step="1" value="20"></label>
+      <label>換股分差 <input id="swapGapInput" type="number" min="1" max="50" step="1" value="10"></label>
+      <label>最短持有天數 <input id="minHoldDaysInput" type="number" min="0" max="60" step="1" value="3"></label>
+      <label>策略版本 <input id="strategyVersionInput" type="text" value="potential-v1"></label>
+      <label>手續費率 % <input id="feeRateInput" type="number" min="0" max="1" step="0.0001" value="0.1425"></label>
+      <label>交易稅率 % <input id="taxRateInput" type="number" min="0" max="1" step="0.0001" value="0.3"></label>
+      <label>滑價 bps <input id="slippageInput" type="number" min="0" max="100" step="1" value="5"></label>
+      <label>Benchmark <input id="benchmarkInput" type="text" value="0050.TW"></label>
+      <label class="toggle-row"><input id="liveDataInput" type="checkbox" checked> 使用即時資料抓取</label>
+      <label class="toggle-row"><input id="usTechLeadingInput" type="checkbox" checked> 納入前一晚美股科技/半導體領先因子</label>
+      <label class="toggle-row"><input id="aiAnalysisInput" type="checkbox"> 使用 AI 深度解讀</label>
+      <div class="settings-actions">
+        <button id="saveSettingsButton" type="button" class="secondary-button">儲存設定</button>
+        <button id="resetSettingsButton" type="button" class="secondary-button">回到預設值</button>
+      </div>
+      <div class="storage-switcher">
+        <label>
+          資料來源
+          <select id="storageBackendInput">
+            <option value="local">本機資料</option>
+            <option value="supabase">Supabase 雲端資料</option>
+          </select>
+        </label>
+        <button id="switchStorageButton" type="button" class="secondary-button">切換資料來源</button>
+        <small id="storageStatus" class="field-hint">讀取資料來源中...</small>
+      </div>
+      <div id="actionStatus" class="action-status hidden">等待操作</div>
+      <div class="daily-actions">
+        <button id="scanButton" type="button" class="reference-button">只抓潛力股參考分析</button>
+        <button id="preMarketButton" type="button">盤前進行分析選股</button>
+        <button id="intradayButton" type="button" class="secondary-button">盤中執行模擬交易</button>
+        <button id="postMarketButton" type="button" class="secondary-button">盤後結算今日結果</button>
+        <button id="branchSummaryButton" type="button" class="secondary-button">產生支線總結</button>
+        <button id="resetCaseButton" type="button" class="danger-button">建立全新支線</button>
+      </div>
+    </section>
 
-        <aside class="side-panel">
-          <section>
-            <h2>分析紀錄</h2>
-            <ul id="historyList"><li>尚無紀錄。</li></ul>
-          </section>
-          <section>
-            <h2>資料缺漏</h2>
-            <ul id="missingList"><li>尚未開始分析。</li></ul>
-          </section>
-          <section>
-            <h2>資料限制</h2>
-            <ul id="limitationsList"><li>尚未開始分析。</li></ul>
-          </section>
-          <section>
-            <h2>資料品質分層</h2>
-            <div id="dataQualityList" class="quality-list">尚未開始分析。</div>
-          </section>
-          <section>
-            <h2>缺漏原因</h2>
-            <ul id="missingReasonList"><li>尚未開始分析。</li></ul>
-          </section>
-          <section>
-            <h2>資料來源</h2>
-            <ul id="sourceList"><li>尚未開始分析。</li></ul>
-          </section>
-        </aside>
-      </section>
+    <section id="loadingBox" class="loading hidden">
+      <div class="spinner"></div>
+      <span>處理中，已用 <strong id="elapsedTimer">0.0</strong> 秒</span>
+    </section>
+
+    <section class="metric-grid">
+      <article><span>市場狀態</span><strong id="marketStance">--</strong></article>
+      <article><span>總資產</span><strong id="totalValue">--</strong></article>
+      <article><span>現金</span><strong id="cashValue">--</strong></article>
+      <article><span>持股市值</span><strong id="investedValue">--</strong></article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header"><h2>每日狀況表</h2></div>
+      <div id="dailyOutput" class="daily-table-wrap">
+        <p class="empty-state">每日盤前、盤中、盤後產生的資料會顯示在這裡。</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header"><h2>支線總結與策略檢討</h2></div>
+      <div id="branchSummaryOutput" class="daily-table-wrap">
+        <p class="empty-state">選取支線後按「產生支線總結」，會量化績效、檢討策略並列出修正建議。</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header"><h2>買賣紀錄帳本</h2></div>
+      <div id="ledgerOutput" class="daily-table-wrap">
+        <p class="empty-state">盤中模擬交易或盤後結算後會產生正式帳本。</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header"><h2>案件列表</h2></div>
+      <div id="caseOutput" class="daily-table-wrap">
+        <p class="empty-state">案件資料載入中。</p>
+      </div>
+    </section>
+
+    <section class="workspace-grid">
+      <article class="panel">
+        <div class="panel-header">
+          <h2>潛力股排行</h2>
+          <button id="downloadButton" type="button" disabled>下載 Markdown</button>
+        </div>
+        <div id="rankingOutput" class="ranking-list empty-state">尚未產生報告。</div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><h2>模擬操作</h2></div>
+        <div id="tradeOutput" class="trade-list empty-state">尚未產生操作記錄。</div>
+      </article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header"><h2>換股候選</h2></div>
+      <div id="replacementOutput" class="trade-list empty-state">達到持股上限時，未買進的高分候選會列在這裡。</div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>分析報告</h2>
+        <button id="copyButton" type="button" disabled>複製報告</button>
+      </div>
+      <div id="reportOutput" class="markdown-output">
+        <p class="empty-state">請先執行參考掃描、盤前、盤中或盤後分析。</p>
+      </div>
     </section>
   </main>
-  <script src="/static/app.js"></script>
+
+  <script src="/static/app.js?v=potential-20260607-cloud-switch-auth" charset="utf-8"></script>
 </body>
 </html>

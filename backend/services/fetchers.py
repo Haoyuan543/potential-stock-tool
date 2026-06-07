@@ -33,6 +33,59 @@ class MarketDataFetcher:
             dataset.limitations.append("Data Missing: news/event feed unavailable.")
         return dataset
 
+    async def fetch_us_daily_returns(self, symbols: list[str]) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        async with httpx.AsyncClient(timeout=self.settings.request_timeout) as client:
+            for symbol in symbols:
+                row = await self.fetch_yahoo_daily_return(client, symbol)
+                if row:
+                    rows.append(row)
+        return rows
+
+    async def fetch_yahoo_daily_return(self, client: httpx.AsyncClient, symbol: str) -> dict[str, Any] | None:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+        params = {"range": "5d", "interval": "1d"}
+        try:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            result = (response.json().get("chart", {}).get("result") or [None])[0]
+        except (httpx.HTTPError, ValueError, AttributeError, TypeError):
+            return None
+        if not result:
+            return None
+        timestamps = result.get("timestamp") or []
+        quote = ((result.get("indicators") or {}).get("quote") or [{}])[0]
+        closes = quote.get("close") or []
+        opens = quote.get("open") or []
+        valid: list[tuple[Any, float, float | None]] = []
+        for idx, close in enumerate(closes):
+            try:
+                close_value = float(close)
+            except (TypeError, ValueError):
+                continue
+            open_value = None
+            try:
+                open_value = float(opens[idx])
+            except (IndexError, TypeError, ValueError):
+                pass
+            stamp = timestamps[idx] if idx < len(timestamps) else None
+            valid.append((stamp, close_value, open_value))
+        if len(valid) < 2:
+            return None
+        previous_close = valid[-2][1]
+        latest_close = valid[-1][1]
+        if previous_close <= 0:
+            return None
+        return {
+            "symbol": symbol,
+            "previous_close": previous_close,
+            "latest_close": latest_close,
+            "latest_open": valid[-1][2],
+            "return_pct": (latest_close - previous_close) / previous_close,
+            "timestamp": valid[-1][0],
+            "source": "Yahoo Finance chart",
+        }
+
     async def fetch_finmind_prices(self, client: httpx.AsyncClient, ticker: str) -> list[PriceBar]:
         start = (date.today() - timedelta(days=420)).isoformat()
         params = {"dataset": "TaiwanStockPrice", "data_id": ticker, "start_date": start}
@@ -151,4 +204,3 @@ def _safe_date(value: Any) -> date | None:
         return date.fromisoformat(str(value)[:10])
     except (TypeError, ValueError):
         return None
-

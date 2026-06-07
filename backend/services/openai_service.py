@@ -17,6 +17,19 @@ market_state, conviction_score, suggested_action, estimated_range, alpha_signals
 bull_thesis, bear_thesis, mispricing, risks, markdown.
 """
 
+POTENTIAL_STOCK_PROMPT = """你是台股潛力股研究助理。
+你的任務是根據已計算好的規則分數、持股、換股候選、資料限制，產生中文研究解讀。
+不要改寫交易規則，不要假裝會真實下單，不要保證報酬。
+如果資料不足，要明確說資料不足。
+請回傳 JSON，欄位必須包含：
+summary_markdown, key_risks, next_checks。
+summary_markdown 請使用繁體中文 Markdown，包含：
+1. 今日重點
+2. 最值得追蹤的 3 檔
+3. 盤前或盤後操作提醒
+4. 風險與資料限制
+"""
+
 
 class OpenAIResearchService:
     def __init__(self) -> None:
@@ -44,6 +57,40 @@ class OpenAIResearchService:
             parsed = self._offline_analysis(dataset, manual_context)
             parsed["raw_ai_text"] = text
         return parsed
+
+    async def analyze_potential_stocks(self, payload: dict) -> dict:
+        if not self.client:
+            return {
+                "analysis_mode": "fallback",
+                "openai_error": "OPENAI_API_KEY 未設定，潛力股 AI 深度解讀已略過。",
+                "summary_markdown": "",
+                "key_risks": [],
+                "next_checks": [],
+            }
+
+        try:
+            response = await self.client.responses.create(
+                model=self.settings.openai_model,
+                instructions=POTENTIAL_STOCK_PROMPT,
+                input=json.dumps(payload, ensure_ascii=False),
+                max_output_tokens=min(self.settings.openai_max_output_tokens, 1800),
+            )
+            text = response.output_text
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                parsed = {"summary_markdown": text, "key_risks": [], "next_checks": []}
+            parsed["analysis_mode"] = "openai"
+            parsed["openai_error"] = ""
+            return parsed
+        except Exception as exc:
+            return {
+                "analysis_mode": "fallback",
+                "openai_error": str(exc),
+                "summary_markdown": "",
+                "key_risks": [],
+                "next_checks": [],
+            }
 
     def _offline_analysis(self, dataset: MarketDataset, manual_context: str = "") -> dict:
         latest = dataset.price[-1] if dataset.price else None

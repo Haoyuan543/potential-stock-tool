@@ -6,6 +6,7 @@ __pycache__/
 data/scheduled_reports/
 data/*.json
 data/*.jsonl
+backend/data/*.jsonl
 data/*.bak
 data/search_cache.json
 data/screenshots/
@@ -13,6 +14,8 @@ data/page_extracts/
 data/scfi_sse_latest.png
 data/*.out.log
 data/*.err.log
+*.out.log
+*.err.log
 data/final_validated_response.json
 data/final_validated_report.md
 data/latest_audit_response.json

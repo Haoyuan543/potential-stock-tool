@@ -1,0 +1,89 @@
+name: Potential Stock Paper Trading
+
+on:
+  workflow_dispatch:
+    inputs:
+      market_universe:
+        description: "semiconductor, electronics, industrial, financial, or custom"
+        required: false
+        default: "semiconductor"
+      symbols:
+        description: "Comma-separated symbols. Leave blank to use the selected universe."
+        required: false
+        default: ""
+      initial_capital:
+        description: "Virtual capital"
+        required: false
+        default: "1000000"
+      max_positions:
+        description: "Maximum simultaneous holdings"
+        required: false
+        default: "5"
+      strategy_version:
+        description: "Strategy version label"
+        required: false
+        default: "potential-v1"
+      risk_reward_profile:
+        description: "conservative, balanced, or aggressive"
+        required: false
+        default: "balanced"
+      investment_horizon:
+        description: "short_weeks, mid_term_3m, long_6m, or multi_year"
+        required: false
+        default: "mid_term_3m"
+      report_session:
+        description: "auto, pre_market, market_hours, or post_market"
+        required: false
+        default: "auto"
+      use_ai_analysis:
+        description: "Use OpenAI deep interpretation: true or false"
+        required: false
+        default: "false"
+  # Automatic schedules are intentionally disabled because GitHub Actions cron
+  # can be delayed. Use cron-job.org to call /api/cron/potential-stocks instead.
+
+jobs:
+  potential-stock-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate potential-stock report
+        env:
+          FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+          NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL || 'gpt-5.5' }}
+          POTENTIAL_STOCK_UNIVERSE: ${{ github.event.inputs.market_universe || 'semiconductor' }}
+          POTENTIAL_STOCK_SYMBOLS: ${{ github.event.inputs.symbols || '' }}
+          POTENTIAL_INITIAL_CAPITAL: ${{ github.event.inputs.initial_capital || '1000000' }}
+          POTENTIAL_MAX_POSITIONS: ${{ github.event.inputs.max_positions || '5' }}
+          POTENTIAL_STRATEGY_VERSION: ${{ github.event.inputs.strategy_version || 'potential-v1' }}
+          POTENTIAL_RISK_REWARD_PROFILE: ${{ github.event.inputs.risk_reward_profile || 'balanced' }}
+          POTENTIAL_INVESTMENT_HORIZON: ${{ github.event.inputs.investment_horizon || 'mid_term_3m' }}
+          POTENTIAL_REPORT_SESSION: ${{ github.event.inputs.report_session || '' }}
+          POTENTIAL_USE_AI_ANALYSIS: ${{ github.event.inputs.use_ai_analysis || 'false' }}
+          POTENTIAL_NO_PERSIST: "false"
+        run: python -m backend.jobs.potential_stock_report
+
+      - name: Upload potential-stock artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: potential-stock-paper-trading
+          path: data/scheduled_reports/potential_stocks/
+          if-no-files-found: warn

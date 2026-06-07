@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     request_timeout: float = 8.0
     openai_timeout_seconds: float = Field(default=180.0, alias="OPENAI_TIMEOUT_SECONDS")
     openai_max_output_tokens: int = Field(default=4000, alias="OPENAI_MAX_OUTPUT_TOKENS")
+    cron_job_secret: str = Field(default="", alias="CRON_JOB_SECRET")
+    dashboard_username: str = Field(default="admin", alias="DASHBOARD_USERNAME")
+    dashboard_password: str = Field(default="", alias="DASHBOARD_PASSWORD")
+    storage_backend: str = Field(default="local", alias="STORAGE_BACKEND")
+    supabase_url: str = Field(default="", alias="SUPABASE_URL")
+    supabase_service_role_key: str = Field(default="", alias="SUPABASE_SERVICE_ROLE_KEY")
+    supabase_records_table: str = Field(default="potential_stock_records", alias="SUPABASE_RECORDS_TABLE")
 
 
 @lru_cache
