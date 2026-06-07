@@ -34,7 +34,7 @@ const resetSettingsButton = document.querySelector("#resetSettingsButton");
 const storageBackendInput = document.querySelector("#storageBackendInput");
 const switchStorageButton = document.querySelector("#switchStorageButton");
 const storageStatus = document.querySelector("#storageStatus");
-const APP_VERSION = "potential-20260607-pro-workbench-v2";
+const APP_VERSION = "potential-20260607-pro-workbench-v3";
 const SETTINGS_KEY = "potentialStockToolSettings";
 
 const universeSymbols = {
@@ -735,6 +735,7 @@ function renderRanking(analyses) {
           <span class="action ${escapeAttr((item.action || "").toLowerCase())}">${escapeHtml(actionLabel(item.action))}</span>
         </div>
         <p>${escapeHtml(item.thesis || "")}</p>
+        ${analysisQuickFacts(item)}
         <div class="score-bar" aria-label="score"><span style="width:${Math.max(0, Math.min(100, item.score || 0))}%"></span></div>
         <dl class="component-grid">
           ${Object.entries(item.component_scores || {}).map(([key, value]) => `
@@ -762,6 +763,27 @@ function renderRanking(analyses) {
       </div>
     </article>
   `).join("");
+}
+
+function analysisQuickFacts(item) {
+  const strengths = [
+    ...(item.technical_summary || []),
+    ...(item.us_market_summary || []),
+    ...(item.advantages || []),
+  ].filter(Boolean).slice(0, 3);
+  const risks = [
+    ...(item.risks || []),
+    ...(item.data_limitations || []),
+  ].filter(Boolean).slice(0, 2);
+  return `
+    <div class="analysis-quick-facts">
+      <span><strong>建議資金</strong>${money(item.suggested_capital || 0)}</span>
+      <span><strong>股數</strong>${escapeHtml(item.suggested_shares || 0)}</span>
+      <span><strong>最新價</strong>${escapeHtml(item.latest_price || "--")}</span>
+      <span><strong>重點</strong>${escapeHtml(strengths.join("；") || "尚無明確優勢")}</span>
+      <span><strong>風險</strong>${escapeHtml(risks.join("；") || "尚無明確風險")}</span>
+    </div>
+  `;
 }
 
 function detailBlock(title, values) {

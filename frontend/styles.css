@@ -21,6 +21,7 @@ body {
   color: var(--ink);
   background: var(--bg);
   font-family: "Microsoft JhengHei", "Noto Sans TC", Arial, sans-serif;
+  overflow-x: hidden;
 }
 
 button, input, select, textarea {
@@ -74,12 +75,14 @@ h2 {
 }
 
 .status-pill {
-  white-space: nowrap;
+  white-space: normal;
+  max-width: 100%;
   border: 1px solid var(--line);
   background: #f8fbfa;
   padding: 9px 12px;
   color: var(--muted);
   font-weight: 900;
+  line-height: 1.45;
 }
 
 .ok-pill {
@@ -634,7 +637,7 @@ button:disabled {
 }
 
 .daily-overview-table {
-  min-width: 980px;
+  min-width: 0;
   width: 100%;
 }
 
@@ -689,7 +692,7 @@ button:disabled {
 
 .table-scroll {
   width: 100%;
-  overflow-x: auto;
+  overflow-x: visible;
   overflow-y: hidden;
 }
 
@@ -711,7 +714,7 @@ button:disabled {
 }
 
 .account-holdings .daily-table {
-  min-width: 840px;
+  min-width: 0;
 }
 
 .ledger-collapse-list {
@@ -737,7 +740,7 @@ button:disabled {
 }
 
 .ledger-action-stage .daily-table {
-  min-width: 980px;
+  min-width: 0;
 }
 
 .ledger-date-record > summary {
@@ -829,6 +832,31 @@ button:disabled {
   margin: 6px 0 0;
 }
 
+.analysis-quick-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.analysis-quick-facts span {
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: #fbfdfc;
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.analysis-quick-facts strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--ink);
+  font-size: 11px;
+}
+
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -900,7 +928,7 @@ button:disabled {
 }
 
 .daily-table-wrap {
-  overflow-x: auto;
+  overflow-x: visible;
   padding: 14px;
 }
 
@@ -921,7 +949,8 @@ button:disabled {
 .daily-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 880px;
+  min-width: 0;
+  table-layout: fixed;
   font-size: 14px;
 }
 
@@ -931,6 +960,8 @@ button:disabled {
   padding: 11px 10px;
   text-align: left;
   vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .daily-table th {
@@ -1035,6 +1066,7 @@ body {
   align-items: center;
   justify-content: flex-end;
   min-width: 260px;
+  max-width: 100%;
 }
 
 .command-center {
@@ -1056,7 +1088,7 @@ body {
 
 .command-center .daily-actions {
   grid-column: auto;
-  grid-template-columns: repeat(6, minmax(128px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(142px, 1fr));
 }
 
 .command-center .action-status {
@@ -1222,6 +1254,78 @@ body {
 
 .daily-table-wrap {
   background: var(--pro-panel);
+}
+
+.daily-overview-table th:nth-child(1),
+.daily-overview-table td:nth-child(1) {
+  width: 96px;
+}
+
+.daily-overview-table th:nth-child(2),
+.daily-overview-table td:nth-child(2),
+.daily-overview-table th:nth-child(4),
+.daily-overview-table td:nth-child(4),
+.daily-overview-table th:nth-child(6),
+.daily-overview-table td:nth-child(6) {
+  width: 76px;
+}
+
+.daily-overview-table th:nth-child(7),
+.daily-overview-table td:nth-child(7),
+.daily-overview-table th:nth-child(8),
+.daily-overview-table td:nth-child(8) {
+  width: 128px;
+}
+
+.workbench-side .daily-table,
+.workbench-side .daily-table thead,
+.workbench-side .daily-table tbody,
+.workbench-side .daily-table tr,
+.workbench-side .daily-table th,
+.workbench-side .daily-table td {
+  display: block;
+  width: 100%;
+}
+
+.workbench-side .daily-table thead {
+  display: none;
+}
+
+.workbench-side .daily-table tr {
+  margin: 0 0 10px;
+  border: 1px solid var(--pro-line);
+  background: #fff;
+}
+
+.workbench-side .daily-table td {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 8px;
+  border-bottom: 1px solid var(--pro-line);
+  padding: 9px 10px;
+}
+
+.workbench-side .daily-table td:last-child {
+  border-bottom: 0;
+}
+
+.workbench-side .daily-table td::before {
+  color: var(--pro-muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.workbench-side .daily-table td:nth-child(1)::before { content: "狀態"; }
+.workbench-side .daily-table td:nth-child(2)::before { content: "案件"; }
+.workbench-side .daily-table td:nth-child(3)::before { content: "查看"; }
+.workbench-side .daily-table td:nth-child(4)::before { content: "刪除"; }
+.workbench-side .daily-table td:nth-child(5)::before { content: "建立時間"; }
+.workbench-side .daily-table td:nth-child(6)::before { content: "紀錄數"; }
+.workbench-side .daily-table td:nth-child(7)::before { content: "追蹤日期"; }
+.workbench-side .daily-table td:nth-child(8)::before { content: "最新淨值"; }
+
+.workbench-side .row-actions {
+  justify-content: flex-start;
 }
 
 .daily-table th {
