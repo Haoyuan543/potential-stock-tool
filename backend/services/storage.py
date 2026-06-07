@@ -214,3 +214,4 @@ potential_stock_store = _store("potential_stock_runs", "potential_stock_runs.jso
 potential_stock_ledger_store = _store("potential_stock_ledger", "potential_stock_ledger.jsonl")
 potential_stock_case_store = _store("potential_stock_cases", "potential_stock_cases.jsonl")
 potential_stock_settings_store = _store("potential_stock_settings", "potential_stock_settings.jsonl")
+potential_stock_research_store = _store("potential_stock_research_bundles", "potential_stock_research_bundles.jsonl")

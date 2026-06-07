@@ -22,12 +22,13 @@ from backend.services.daily_report import DailyReportService
 from backend.services.fetchers import MarketDataFetcher
 from backend.services.potential_stock_cron import CronPotentialStockRequest, PotentialStockCronRunner
 from backend.services.potential_stock_service import PotentialStockService
+from backend.services.research_collector import ResearchCollectRequest, ResearchCollectorService
 from backend.services.storage import set_runtime_storage_backend, storage_status
 
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
-BACKEND_VERSION = "potential-20260607-data-language-v1"
+BACKEND_VERSION = "potential-20260607-research-collector-v1"
 
 app = FastAPI(title="AI Alpha Research Platform", version="0.2.0")
 app.add_middleware(
@@ -45,6 +46,7 @@ daily_reports = DailyReportService()
 analysis_service = AnalysisService()
 potential_stock_service = PotentialStockService()
 potential_stock_cron = PotentialStockCronRunner(potential_stock_service, get_settings)
+research_collector = ResearchCollectorService()
 
 
 def _valid_basic_auth(header_value: str, username: str, password: str) -> bool:
@@ -119,6 +121,12 @@ class StorageBackendSwitchRequest(BaseModel):
     token: str = ""
 
 
+class CronResearchCollectRequest(ResearchCollectRequest):
+    token: str = ""
+    background: bool = False
+    use_saved_settings: bool = True
+
+
 def _authorize_cron(token: str = "", header_token: str = "") -> None:
     secret = get_settings().cron_job_secret
     provided = token or header_token
@@ -147,6 +155,20 @@ def _cron_accepted_response(report_session: str) -> JSONResponse:
         content=potential_stock_cron.accepted_payload(report_session),
         headers={"Cache-Control": "no-store"},
     )
+
+
+def _research_accepted_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=202,
+        content={"ok": True, "accepted": True, "background": True, "collector": "research-bundle-v1"},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+def _research_request_from_saved_settings(max_symbols: int = 30, include_us_tech: bool = True) -> ResearchCollectRequest:
+    request = potential_stock_service.request_from_saved_settings("pre_market", persist=False)
+    symbols = potential_stock_service._symbols_for_request(request)
+    return ResearchCollectRequest(symbols=symbols, include_us_tech=include_us_tech, max_symbols=max_symbols)
 
 
 @app.get("/")
@@ -334,6 +356,16 @@ async def potential_stock_delete_case(case_id: str, request: Request, token: str
     return potential_stock_service.delete_case(case_id)
 
 
+@app.get("/api/research-collector/status")
+async def research_collector_status(limit: int = 50) -> dict:
+    return research_collector.status(limit=limit)
+
+
+@app.post("/api/research-collector/collect")
+async def research_collector_collect(request: ResearchCollectRequest) -> dict:
+    return await research_collector.collect(request)
+
+
 @app.get("/api/cron/potential-stocks")
 async def cron_potential_stocks(
     session: Literal["pre_market", "market_hours", "post_market"] = Query("pre_market"),
@@ -396,6 +428,46 @@ async def cron_potential_stocks_post(request: CronPotentialStockRequest, x_cron_
         potential_stock_cron.schedule(safe_request, safe_request.report_session, request.send_email)
         return _cron_accepted_response(safe_request.report_session)
     return await potential_stock_cron.execute(safe_request, safe_request.report_session, request.send_email)
+
+
+@app.get("/api/cron/research-collector")
+async def cron_research_collector(
+    token: str = Query(""),
+    x_cron_token: str = Header(default=""),
+    symbols: str = Query(""),
+    include_us_tech: bool = Query(True),
+    max_symbols: int = Query(30),
+    background: bool = Query(True),
+    use_saved_settings: bool = Query(True),
+) -> dict:
+    _authorize_cron(token, x_cron_token)
+    request = (
+        _research_request_from_saved_settings(max_symbols=max_symbols, include_us_tech=include_us_tech)
+        if use_saved_settings
+        else ResearchCollectRequest(
+            symbols=[item.strip() for item in symbols.replace(";", ",").split(",") if item.strip()],
+            include_us_tech=include_us_tech,
+            max_symbols=max_symbols,
+        )
+    )
+    if background:
+        research_collector.schedule(request)
+        return _research_accepted_response()
+    return await research_collector.collect(request)
+
+
+@app.post("/api/cron/research-collector")
+async def cron_research_collector_post(request: CronResearchCollectRequest, x_cron_token: str = Header(default="")) -> dict:
+    _authorize_cron(request.token, x_cron_token)
+    safe_request = (
+        _research_request_from_saved_settings(max_symbols=request.max_symbols, include_us_tech=request.include_us_tech)
+        if request.use_saved_settings
+        else ResearchCollectRequest.model_validate(request.model_dump(mode="json"))
+    )
+    if request.background:
+        research_collector.schedule(safe_request)
+        return _research_accepted_response()
+    return await research_collector.collect(safe_request)
 
 
 app.mount("/static", StaticFiles(directory=str(FRONTEND)), name="static")

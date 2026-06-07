@@ -39,3 +39,25 @@ use_saved_settings=false
 ```
 
 正式使用時建議不要把股票池、資金、持股上限塞在 URL，直接用面板「儲存設定」管理即可。
+## Research Collector 先行資料排程
+
+新版建議先讓 non-AI collector 抓資料，再讓分析流程讀取已整理好的資料包。這樣比較省 OpenAI token，也比較不會在盤前分析時才遇到資料來源 timeout。
+
+建議 cron-job.org 順序：
+
+```text
+08:05  https://YOUR_DOMAIN/api/cron/research-collector?background=true&token=YOUR_SECRET
+08:30  https://YOUR_DOMAIN/api/cron/potential-stocks?session=pre_market&background=true&token=YOUR_SECRET
+10:00  https://YOUR_DOMAIN/api/cron/research-collector?background=true&token=YOUR_SECRET
+10:05  https://YOUR_DOMAIN/api/cron/potential-stocks?session=market_hours&background=true&token=YOUR_SECRET
+20:00  https://YOUR_DOMAIN/api/cron/research-collector?background=true&token=YOUR_SECRET
+20:10  https://YOUR_DOMAIN/api/cron/potential-stocks?session=post_market&background=true&token=YOUR_SECRET
+```
+
+Collector 預設會讀取面板儲存的股票池與設定，所以 URL 通常不用再帶 symbols。要檢查資料倉儲狀態可看：
+
+```text
+https://YOUR_DOMAIN/api/research-collector/status
+```
+
+目前 collector 不使用 OpenAI API；它只負責抓資料、標準化、存進本機或 Supabase，分析工具再讀取這些資料包。

@@ -19,6 +19,7 @@ from backend.models import (
 )
 from backend.services.fetchers import MarketDataFetcher
 from backend.services.openai_service import OpenAIResearchService
+from backend.services.research_collector import ResearchCollectorService
 from backend.services.storage import (
     potential_stock_case_store,
     potential_stock_ledger_store,
@@ -79,6 +80,7 @@ class PotentialStockService:
     def __init__(self) -> None:
         self.fetcher = MarketDataFetcher()
         self.ai = OpenAIResearchService()
+        self.research_collector = ResearchCollectorService()
 
     def active_case_id(self) -> str:
         rows = potential_stock_case_store.all()
@@ -240,11 +242,13 @@ class PotentialStockService:
 
         symbols = self._symbols_for_request(request)
         if request.use_live_data:
-            datasets = [await self.fetcher.collect(self._finmind_symbol(symbol)) for symbol in symbols]
+            datasets = await self._datasets_for_symbols(symbols)
         else:
             datasets = [MarketDataset(ticker=symbol, limitations=["Data Missing: live data disabled for this run."]) for symbol in symbols]
 
-        us_tech_context = await self._build_us_tech_context(request)
+        us_tech_context = self.research_collector.latest_us_tech_context(max_age_minutes=720) if request.use_live_data and request.use_us_tech_leading else None
+        if us_tech_context is None:
+            us_tech_context = await self._build_us_tech_context(request)
         analyses = [self._analyze_dataset(dataset, request, us_tech_context=us_tech_context) for dataset in datasets]
         analyses.sort(key=lambda item: item.score, reverse=True)
         if request.report_session == "market_hours" and not request.persist:
@@ -286,6 +290,18 @@ class PotentialStockService:
             if request.report_session in {"market_hours", "post_market"}:
                 self.save_ledger(report, request, case_id=case_id)
         return report
+
+    async def _datasets_for_symbols(self, symbols: list[str]) -> list[MarketDataset]:
+        datasets: list[MarketDataset] = []
+        for symbol in symbols:
+            cached = self.research_collector.latest_dataset(symbol, max_age_minutes=240)
+            if cached:
+                datasets.append(cached)
+                continue
+            dataset = await self.fetcher.collect(self._finmind_symbol(symbol))
+            dataset.ticker = symbol
+            datasets.append(dataset)
+        return datasets
 
     def save_report(self, report: PotentialStockReport, request: PotentialStockRequest, case_id: str | None = None) -> None:
         generated_at = datetime.now(TW_TZ)

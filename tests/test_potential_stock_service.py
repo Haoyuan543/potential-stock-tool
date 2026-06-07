@@ -9,11 +9,13 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 
 import backend.services.potential_stock_service as potential_stock_module
+import backend.services.research_collector as research_collector_module
 from backend.config import get_settings
 from backend.main import app
 from backend.models import DataPoint, MarketDataset, PotentialBacktestRequest, PotentialStockRequest, PriceBar
 from backend.services.potential_stock_cron import PotentialStockCronRunner
 from backend.services.potential_stock_service import PotentialStockService
+from backend.services.research_collector import ResearchCollectorService
 
 
 TW_TEST_TZ = timezone(timedelta(hours=8))
@@ -216,6 +218,46 @@ class PotentialStockServiceTest(unittest.TestCase):
         self.assertNotIn("US Leading Data Missing", combined)
         self.assertIn("新聞與事件資料源暫時無法取得", combined)
         self.assertIn("美股科技/半導體領先資料暫未取得", combined)
+
+    def test_research_collector_persists_reusable_dataset_bundle(self) -> None:
+        original_store = research_collector_module.potential_stock_research_store
+        research_collector_module.potential_stock_research_store = self._memory_store([])
+        try:
+            collector = ResearchCollectorService()
+            dataset = self._strong_dataset("2330")
+            dataset.ticker = "2330.TW"
+            research_collector_module.potential_stock_research_store.append(collector._dataset_record(dataset, datetime.now(TW_TEST_TZ)))
+
+            cached = collector.latest_dataset("2330.TW", max_age_minutes=60)
+
+            self.assertIsNotNone(cached)
+            self.assertEqual(cached.ticker, "2330.TW")
+            self.assertGreaterEqual(len(cached.price), 20)
+        finally:
+            research_collector_module.potential_stock_research_store = original_store
+
+    def test_potential_stock_service_prefers_research_cache_before_live_fetch(self) -> None:
+        request = PotentialStockRequest(symbols=["2330.TW"], use_live_data=True, persist=False)
+        dataset = self._strong_dataset("2330")
+        dataset.ticker = "2330.TW"
+
+        class CacheOnlyCollector:
+            def latest_dataset(self, symbol, max_age_minutes=240):
+                return dataset if symbol == "2330.TW" else None
+
+            def latest_us_tech_context(self, max_age_minutes=720):
+                return None
+
+        async def fail_collect(_symbol):
+            raise AssertionError("live fetch should not run when research cache is available")
+
+        self.service.research_collector = CacheOnlyCollector()
+        self.service.fetcher.collect = fail_collect
+
+        report = asyncio.run(self.service.run(request))
+
+        self.assertEqual(report.analyses[0].symbol, "2330.TW")
+        self.assertGreaterEqual(report.analyses[0].score, 60)
 
     def test_auto_report_session_resolves_by_taiwan_market_time(self) -> None:
         self.assertEqual(self.service._resolve_report_session("auto", datetime(2026, 6, 5, 8, 30, tzinfo=TW_TEST_TZ)), "pre_market")

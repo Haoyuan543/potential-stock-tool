@@ -128,7 +128,7 @@ def main() -> None:
 
     health = client.get("/health")
     assert health.status_code == 200
-    assert health.json()["backend_version"] == "potential-20260607-data-language-v1"
+    assert health.json()["backend_version"] == "potential-20260607-research-collector-v1"
     assert health.json()["storage"]["backend"] in {"local", "supabase"}
 
     storage_status = client.get("/api/storage/status")
@@ -147,6 +147,8 @@ def main() -> None:
     assert "Delete actions are allowed only from localhost or with CRON_JOB_SECRET" in main_py
     assert "dashboard_basic_auth" in main_py
     assert "/api/storage/backend" in main_py
+    assert "/api/research-collector/status" in main_py
+    assert "/api/cron/research-collector" in main_py
     assert "PotentialStockCronRunner" in main_py
     cron_py = (ROOT / "backend" / "services" / "potential_stock_cron.py").read_text(encoding="utf-8")
     assert "send_potential_stock_report_email" in cron_py
@@ -163,6 +165,7 @@ def main() -> None:
     assert "STORAGE_BACKEND" in env_example
     assert "DASHBOARD_PASSWORD" in env_example
     assert "potential_stock_supabase.sql" in (ROOT / "CLOUD_SUPABASE_STEPS.md").read_text(encoding="utf-8")
+    assert "potential_stock_research_store" in storage_py
     assert (ROOT / "Dockerfile").exists()
     assert (ROOT / "render.yaml").exists()
     assert (ROOT / "database" / "potential_stock_supabase.sql").exists()
