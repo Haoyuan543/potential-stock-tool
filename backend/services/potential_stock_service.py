@@ -1243,6 +1243,7 @@ class PotentialStockService:
                 "advantages": item.advantages[:4],
                 "risks": item.risks[:4],
                 "related_news": item.related_news[:4],
+                "evidence_links": item.evidence_links[:5],
                 "thesis": item.thesis,
             }
             for item in analyses[:10]
@@ -1324,6 +1325,7 @@ class PotentialStockService:
         fundamental_score, fundamental_summary, operating_summary = self._fundamentals(dataset)
         institutional_score, institutional_summary = self._institutional(dataset)
         news_score, related_news, news_risks = self._news(dataset)
+        event_score, event_summary, event_risks, evidence_links = self._event_intelligence(dataset)
         data_score = self._data_score(dataset)
         data_quality_summary = self._data_quality_summary(dataset, data_score)
         component_scores = {
@@ -1331,6 +1333,7 @@ class PotentialStockService:
             "fundamental": fundamental_score,
             "institutional": institutional_score,
             "news": news_score,
+            "event_intel": event_score,
             "data_quality": data_score,
         }
         smart_money_score, smart_money_summary = self._smart_money_quality_signal(component_scores)
@@ -1343,8 +1346,8 @@ class PotentialStockService:
         action = "BUY" if score >= request.buy_score else "WATCH" if score >= request.watch_score else "AVOID"
         risk_level = "High" if data_score < 45 or score < 50 else "Medium" if score < 75 else "Low"
         advantages = self._advantages(component_scores)
-        risks = self._friendly_data_messages(news_risks + self._risks(component_scores, dataset))
-        related_news = self._friendly_data_messages(related_news)
+        risks = self._friendly_data_messages(news_risks + event_risks + self._risks(component_scores, dataset))
+        related_news = self._friendly_data_messages([*event_summary, *related_news])[:5]
         technical_summary = self._friendly_data_messages(technical_summary)
         fundamental_summary = self._friendly_data_messages(fundamental_summary)
         institutional_summary = self._friendly_data_messages(institutional_summary)
@@ -1366,6 +1369,7 @@ class PotentialStockService:
             advantages=advantages,
             risks=risks,
             related_news=related_news,
+            evidence_links=evidence_links[:5],
             data_limitations=data_limitations,
             latest_price=latest_price,
             latest_open=latest_open,
@@ -1374,21 +1378,23 @@ class PotentialStockService:
 
     def _weighted_score(self, scores: dict[str, int], request: PotentialStockRequest) -> int:
         weights_by_horizon = {
-            "short_weeks": {"technical": 0.31, "fundamental": 0.13, "institutional": 0.14, "smart_money_quality": 0.10, "news": 0.13, "us_tech_leading": 0.11, "data_quality": 0.08},
-            "mid_term_3m": {"technical": 0.23, "fundamental": 0.21, "institutional": 0.15, "smart_money_quality": 0.12, "news": 0.12, "us_tech_leading": 0.08, "data_quality": 0.09},
-            "long_6m": {"technical": 0.18, "fundamental": 0.30, "institutional": 0.14, "smart_money_quality": 0.11, "news": 0.08, "us_tech_leading": 0.05, "data_quality": 0.14},
-            "multi_year": {"technical": 0.13, "fundamental": 0.38, "institutional": 0.10, "smart_money_quality": 0.10, "news": 0.07, "us_tech_leading": 0.02, "data_quality": 0.20},
+            "short_weeks": {"technical": 0.28, "fundamental": 0.12, "institutional": 0.13, "smart_money_quality": 0.10, "news": 0.10, "event_intel": 0.09, "us_tech_leading": 0.10, "data_quality": 0.08},
+            "mid_term_3m": {"technical": 0.21, "fundamental": 0.20, "institutional": 0.14, "smart_money_quality": 0.12, "news": 0.09, "event_intel": 0.08, "us_tech_leading": 0.07, "data_quality": 0.09},
+            "long_6m": {"technical": 0.17, "fundamental": 0.28, "institutional": 0.13, "smart_money_quality": 0.11, "news": 0.06, "event_intel": 0.08, "us_tech_leading": 0.04, "data_quality": 0.13},
+            "multi_year": {"technical": 0.12, "fundamental": 0.36, "institutional": 0.09, "smart_money_quality": 0.10, "news": 0.05, "event_intel": 0.08, "us_tech_leading": 0.02, "data_quality": 0.18},
         }
         weights = weights_by_horizon.get(request.investment_horizon, weights_by_horizon["mid_term_3m"])
         score = sum(scores.get(key, 50) * weight for key, weight in weights.items())
         if request.risk_reward_profile == "aggressive":
             score += max(0, scores.get("technical", 50) - 65) * 0.08 + max(0, scores.get("news", 50) - 60) * 0.05
             score += max(0, scores.get("us_tech_leading", 50) - 60) * 0.04
+            score += max(0, scores.get("event_intel", 50) - 65) * 0.05
             score -= max(0, 55 - scores.get("data_quality", 50)) * 0.08
         elif request.risk_reward_profile == "conservative":
             score += max(0, scores.get("data_quality", 50) - 70) * 0.05
             score -= max(0, 60 - scores.get("data_quality", 50)) * 0.25
             score -= max(0, 55 - scores.get("fundamental", 50)) * 0.12
+            score += max(0, scores.get("event_intel", 50) - 70) * 0.03
         return int(max(0, min(100, round(score))))
 
     def _smart_money_quality_signal(self, scores: dict[str, int]) -> tuple[int, list[str]]:
@@ -1557,20 +1563,109 @@ class PotentialStockService:
         score = 55 + sum(6 for word in positive_words if word in text) - sum(8 for word in negative_words if word in text)
         return int(max(0, min(100, score))), titles, risks
 
+    def _event_intelligence(self, dataset: MarketDataset) -> tuple[int, list[str], list[str], list[dict[str, Any]]]:
+        rows = [point for point in dataset.events if not point.missing]
+        if not rows:
+            return 45, ["官方公告、公司 IR 與供應鏈情報尚未取得。"], ["缺少官方/IR/供應鏈情報，事件面信心需下修。"], []
+        tier_weight = {
+            "official_mops": 6,
+            "exchange_alert": 4,
+            "company_ir": 3,
+            "conference_material": 3,
+            "supply_chain_search": 2,
+        }
+        positive_keywords = ("AI", "CoWoS", "HBM", "ASIC", "訂單", "產能", "擴產", "NVIDIA", "輝達", "先進封裝", "GB200", "CPO", "液冷", "upgrade", "guidance")
+        negative_keywords = ("處置", "注意", "裁罰", "訴訟", "下修", "減產", "缺料", "風險", "downgrade", "weak", "miss")
+        score = 50
+        summary: list[str] = []
+        risks: list[str] = []
+        evidence = self._evidence_links(dataset)
+        for point in rows[:12]:
+            value = point.value if isinstance(point.value, dict) else {}
+            tier = str(value.get("tier") or "news")
+            credibility = self._float_or_none(value.get("credibility")) or 55
+            text = " ".join([str(point.name or ""), str(value.get("summary") or point.value or "")])
+            score += tier_weight.get(tier, 1) * max(0.6, credibility / 100)
+            score += sum(2 for keyword in positive_keywords if keyword.lower() in text.lower())
+            if any(keyword.lower() in text.lower() for keyword in negative_keywords):
+                score -= 4
+                risks.append(f"{point.source} 出現需留意事件：{point.name}")
+        for point in rows[:5]:
+            value = point.value if isinstance(point.value, dict) else {}
+            tier = str(value.get("tier") or "news")
+            tier_label = self._tier_label(tier)
+            summary_text = str(value.get("summary") or point.name or "")
+            keywords = value.get("matched_keywords") if isinstance(value.get("matched_keywords"), list) else []
+            keyword_text = f"；命中關鍵字：{', '.join(str(item) for item in keywords[:4])}" if keywords else ""
+            summary.append(f"{tier_label}｜{point.source}：{point.name}。{summary_text[:120]}{keyword_text}")
+        return int(max(0, min(100, round(score)))), summary, risks[:4], evidence[:5]
+
+    def _evidence_links(self, dataset: MarketDataset) -> list[dict[str, Any]]:
+        tier_rank = {
+            "official_mops": 0,
+            "exchange_alert": 1,
+            "company_ir": 2,
+            "conference_material": 3,
+            "supply_chain_search": 4,
+            "news": 5,
+        }
+        candidates: list[DataPoint] = [point for point in [*dataset.events, *dataset.news] if not point.missing and point.url]
+        def rank(point: DataPoint) -> tuple[int, int]:
+            value = point.value if isinstance(point.value, dict) else {}
+            tier = str(value.get("tier") or ("news" if point in dataset.news else "supply_chain_search"))
+            credibility = int(self._float_or_none(value.get("credibility")) or 50)
+            return tier_rank.get(tier, 9), -credibility
+        candidates.sort(key=rank)
+        links: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for point in candidates:
+            url = str(point.url or "")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            value = point.value if isinstance(point.value, dict) else {}
+            tier = str(value.get("tier") or ("news" if point in dataset.news else "supply_chain_search"))
+            links.append(
+                {
+                    "title": point.name,
+                    "source": point.source,
+                    "url": url,
+                    "tier": tier,
+                    "tier_label": self._tier_label(tier),
+                    "credibility": int(self._float_or_none(value.get("credibility")) or (60 if tier == "news" else 70)),
+                }
+            )
+            if len(links) >= 5:
+                break
+        return links
+
+    def _tier_label(self, tier: str) -> str:
+        labels = {
+            "official_mops": "官方重大訊息",
+            "exchange_alert": "交易所公告",
+            "company_ir": "公司 IR",
+            "conference_material": "法說/簡報",
+            "supply_chain_search": "供應鏈搜尋",
+            "news": "新聞",
+        }
+        return labels.get(tier, tier or "資料來源")
+
     def _data_score(self, dataset: MarketDataset) -> int:
         score = 100
         score -= 18 if not dataset.price else 0
         score -= 14 if not dataset.fundamentals else 0
         score -= 14 if not dataset.institutional else 0
         score -= 10 if not dataset.news or all(point.missing for point in dataset.news) else 0
+        score -= 8 if not dataset.events or all(point.missing for point in dataset.events) else 0
         score -= min(25, len(dataset.limitations) * 6)
         return int(max(0, min(100, score)))
 
     def _data_quality_summary(self, dataset: MarketDataset, data_score: int) -> list[str]:
         news_rows = len([point for point in dataset.news if not point.missing])
+        event_rows = len([point for point in dataset.events if not point.missing])
         coverage = (
             f"資料覆蓋：股價 {len(dataset.price)} 筆、法人 {len(dataset.institutional)} 筆、"
-            f"基本面 {len(dataset.fundamentals)} 筆、新聞 {news_rows} 則，資料品質 {data_score}/100。"
+            f"基本面 {len(dataset.fundamentals)} 筆、新聞 {news_rows} 則、官方/IR/供應鏈事件 {event_rows} 筆，資料品質 {data_score}/100。"
         )
         if data_score >= 75:
             judgement = "資料品質足夠支撐本次排序；仍需用盤中成交價驗證預估買賣是否合理。"
@@ -2106,6 +2201,11 @@ class PotentialStockService:
     def _stock_markdown(self, item: PotentialStockAnalysis) -> str:
         def bullets(values: list[str]) -> str:
             return "\n".join(f"- {value}" for value in values) if values else "- 尚無資料"
+        links = "\n".join(
+            f"- [{link.get('tier_label') or link.get('source')}: {link.get('title')}]({link.get('url')})"
+            for link in item.evidence_links[:5]
+            if link.get("url")
+        ) or "- 尚無可追溯連結"
         return f"""### {item.symbol} {item.company_name} - {self._action_label(item.action)}（{item.score}/100）
 投資論點：{item.thesis}
 
@@ -2129,6 +2229,9 @@ class PotentialStockService:
 
 相關新聞：
 {bullets(item.related_news)}
+
+資料來源連結：
+{links}
 
 主要風險：
 {bullets(item.risks)}
@@ -2181,6 +2284,8 @@ def _potential_advantages_v2(self: PotentialStockService, scores: dict[str, int]
         advantages.append("籌碼、基本面與價格位置同向，符合「籌碼是腳印、基本面是原因」的確認邏輯。")
     if scores.get("news", 50) >= 65:
         advantages.append("\u8fd1\u671f\u65b0\u805e\u4e8b\u4ef6\u504f\u6b63\u5411\u3002")
+    if scores.get("event_intel", 50) >= 65:
+        advantages.append("官方公告、公司 IR、法說或供應鏈情報對本次判斷提供較高可信度支撐。")
     if scores.get("us_tech_leading", 50) >= 55:
         advantages.append("\u5df2\u7d0d\u5165\u524d\u4e00\u665a\u7f8e\u80a1\u79d1\u6280/\u534a\u5c0e\u9ad4\u4f5c\u70ba\u53f0\u80a1\u76e4\u524d\u9818\u5148\u56e0\u5b50\u3002")
     return advantages or ["\u66ab\u7121\u660e\u78ba\u55ae\u4e00\u512a\u52e2\uff0c\u9700\u6301\u7e8c\u89c0\u5bdf\u5f8c\u7e8c\u8cc7\u6599\u3002"]

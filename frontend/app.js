@@ -34,7 +34,7 @@ const resetSettingsButton = document.querySelector("#resetSettingsButton");
 const storageBackendInput = document.querySelector("#storageBackendInput");
 const switchStorageButton = document.querySelector("#switchStorageButton");
 const storageStatus = document.querySelector("#storageStatus");
-const APP_VERSION = "potential-20260607-scroll-fix-v1";
+const APP_VERSION = "potential-20260607-research-v2-v1";
 const SETTINGS_KEY = "potentialStockToolSettings";
 
 const universeSymbols = {
@@ -756,6 +756,7 @@ function renderRanking(analyses) {
             ${detailBlock("營運面", item.operating_summary)}
             ${detailBlock("近期優勢", item.advantages)}
             ${detailBlock("相關新聞", item.related_news)}
+            ${evidenceLinksBlock(item.evidence_links)}
             ${detailBlock("風險", item.risks)}
             ${detailBlock("資料限制", item.data_limitations)}
           </div>
@@ -792,6 +793,26 @@ function detailBlock(title, values) {
     <section class="detail-block">
       <h3>${escapeHtml(title)}</h3>
       <ul>${items.map((value) => `<li>${escapeHtml(value)}</li>`).join("")}</ul>
+    </section>
+  `;
+}
+
+function evidenceLinksBlock(links) {
+  const items = Array.isArray(links) ? links.filter((item) => item && item.url).slice(0, 5) : [];
+  if (!items.length) return detailBlock("資料來源連結", ["尚無可追溯連結"]);
+  return `
+    <section class="detail-block evidence-links">
+      <h3>資料來源連結</h3>
+      <ul>
+        ${items.map((item) => `
+          <li>
+            <a href="${escapeAttr(item.url)}" target="_blank" rel="noopener noreferrer">
+              ${escapeHtml(item.tier_label || item.source || "來源")}｜${escapeHtml(item.title || item.url)}
+            </a>
+            <small>${escapeHtml(item.source || "")} · 可信度 ${escapeHtml(item.credibility || "--")}</small>
+          </li>
+        `).join("")}
+      </ul>
     </section>
   `;
 }

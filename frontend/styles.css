@@ -890,6 +890,24 @@ button:disabled {
   line-height: 1.45;
 }
 
+.evidence-links a {
+  color: var(--pro-blue);
+  font-weight: 900;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.evidence-links a:hover {
+  text-decoration: underline;
+}
+
+.evidence-links small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .trade-row small {
   color: var(--muted);
   font-weight: 800;

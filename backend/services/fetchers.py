@@ -6,6 +6,7 @@ import httpx
 
 from backend.config import get_settings
 from backend.models import DataPoint, MarketDataset, PriceBar
+from backend.services.official_research import OfficialResearchFetcher
 
 
 class MarketDataFetcher:
@@ -36,6 +37,7 @@ class MarketDataFetcher:
 
     def __init__(self) -> None:
         self.settings = get_settings()
+        self.official_research = OfficialResearchFetcher()
 
     async def collect(self, ticker: str) -> MarketDataset:
         dataset = MarketDataset(ticker=ticker)
@@ -45,6 +47,7 @@ class MarketDataFetcher:
             dataset.scfi = await self.fetch_scfi(client)
             dataset.fundamentals = await self.fetch_fundamentals(client, ticker)
             dataset.news = await self.fetch_news(client, ticker)
+            dataset.events = await self.official_research.collect(client, ticker)
 
         if not dataset.price:
             dataset.limitations.append("Data Missing: price OHLCV history unavailable.")
@@ -56,6 +59,8 @@ class MarketDataFetcher:
             dataset.limitations.append("Data Missing: monthly revenue/fundamental data unavailable.")
         if not dataset.news:
             dataset.limitations.append("Data Missing: news/event feed unavailable.")
+        if not dataset.events:
+            dataset.limitations.append("Data Missing: official events, IR, and supply-chain intelligence unavailable.")
         return dataset
 
     async def fetch_us_daily_returns(self, symbols: list[str]) -> list[dict[str, Any]]:

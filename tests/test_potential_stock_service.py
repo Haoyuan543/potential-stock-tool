@@ -236,6 +236,23 @@ class PotentialStockServiceTest(unittest.TestCase):
         finally:
             research_collector_module.potential_stock_research_store = original_store
 
+    def test_research_collector_quality_counts_research_v2_sources(self) -> None:
+        collector = ResearchCollectorService()
+        dataset = self._strong_dataset("2330")
+        dataset.ticker = "2330.TW"
+        dataset.events = [
+            DataPoint(source="MOPS 重大訊息", name="official", value={"tier": "official_mops", "credibility": 98}, url="https://mops.twse.com.tw/mops/web/t05st01"),
+            DataPoint(source="公司 IR", name="ir", value={"tier": "company_ir", "credibility": 86}, url="https://investor.tsmc.com/chinese"),
+            DataPoint(source="供應鏈關鍵字搜尋", name="supply", value={"tier": "supply_chain_search", "credibility": 68}, url="https://example.com"),
+        ]
+
+        quality = collector._dataset_quality(dataset)
+
+        self.assertEqual(quality["event_rows"], 3)
+        self.assertEqual(quality["official_rows"], 1)
+        self.assertEqual(quality["ir_rows"], 1)
+        self.assertEqual(quality["supply_chain_rows"], 1)
+
     def test_potential_stock_service_prefers_research_cache_before_live_fetch(self) -> None:
         request = PotentialStockRequest(symbols=["2330.TW"], use_live_data=True, persist=False)
         dataset = self._strong_dataset("2330")
@@ -309,6 +326,53 @@ class PotentialStockServiceTest(unittest.TestCase):
         analysis = self.service._analyze_dataset(self._strong_dataset("2330"), request)
 
         self.assertTrue(any("資料覆蓋" in item and "資料品質" in item for item in analysis.operating_summary))
+
+    def test_potential_stock_analysis_uses_official_event_evidence_links(self) -> None:
+        request = PotentialStockRequest(symbols=["2330.TW"], use_live_data=False, persist=False)
+        dataset = self._strong_dataset("2330")
+        dataset.events = [
+            DataPoint(
+                source="MOPS 重大訊息",
+                name="台積電產能與先進封裝說明",
+                value={"summary": "CoWoS 產能與 AI 訂單需求持續增加", "tier": "official_mops", "credibility": 98},
+                url="https://mops.twse.com.tw/mops/web/t05st01",
+            ),
+            DataPoint(
+                source="公司 IR",
+                name="台積電投資人關係",
+                value={"summary": "公司 IR 法說與財報簡報", "tier": "company_ir", "credibility": 86},
+                url="https://investor.tsmc.com/chinese",
+            ),
+            DataPoint(
+                source="供應鏈關鍵字搜尋",
+                name="輝達 AI server supply chain",
+                value={"summary": "AI server、HBM、CoWoS 需求", "tier": "supply_chain_search", "credibility": 68, "matched_keywords": ["HBM", "CoWoS"]},
+                url="https://example.com/supply-chain",
+            ),
+        ]
+
+        analysis = self.service._analyze_dataset(dataset, request)
+
+        self.assertIn("event_intel", analysis.component_scores)
+        self.assertGreaterEqual(analysis.component_scores["event_intel"], 65)
+        self.assertTrue(any("官方重大訊息" in item or "公司 IR" in item for item in analysis.related_news))
+        self.assertGreaterEqual(len(analysis.evidence_links), 3)
+        self.assertEqual(analysis.evidence_links[0]["tier"], "official_mops")
+
+    def test_evidence_links_are_limited_to_five_and_prioritize_official_sources(self) -> None:
+        dataset = self._strong_dataset("2330")
+        dataset.events = [
+            DataPoint(source="供應鏈關鍵字搜尋", name=f"search {index}", value={"tier": "supply_chain_search", "credibility": 65}, url=f"https://example.com/search-{index}")
+            for index in range(8)
+        ]
+        dataset.events.append(
+            DataPoint(source="MOPS 重大訊息", name="official", value={"tier": "official_mops", "credibility": 98}, url="https://mops.twse.com.tw/mops/web/t05st01")
+        )
+
+        links = self.service._evidence_links(dataset)
+
+        self.assertEqual(len(links), 5)
+        self.assertEqual(links[0]["tier"], "official_mops")
 
     def test_auto_report_session_resolves_by_taiwan_market_time(self) -> None:
         self.assertEqual(self.service._resolve_report_session("auto", datetime(2026, 6, 5, 8, 30, tzinfo=TW_TEST_TZ)), "pre_market")

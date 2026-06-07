@@ -40,6 +40,7 @@ class MarketDataset(BaseModel):
     scfi: list[DataPoint] = Field(default_factory=list)
     fundamentals: list[DataPoint] = Field(default_factory=list)
     news: list[DataPoint] = Field(default_factory=list)
+    events: list[DataPoint] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
 
 
@@ -171,6 +172,7 @@ class PotentialStockAnalysis(BaseModel):
     advantages: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
     related_news: list[str] = Field(default_factory=list)
+    evidence_links: list[dict[str, Any]] = Field(default_factory=list)
     data_limitations: list[str] = Field(default_factory=list)
     latest_price: float | None = None
     latest_open: float | None = None

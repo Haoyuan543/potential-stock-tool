@@ -39,7 +39,7 @@ def main() -> None:
         "switchStorageButton",
         "storageStatus",
         "納入前一晚美股科技 / 半導體領先因子",
-        "potential-20260607-scroll-fix-v1",
+        "potential-20260607-research-v2-v1",
     ]:
         assert marker in home.text
 
@@ -62,7 +62,7 @@ def main() -> None:
         assert marker in home.text
     assert home.text.index('id="dailyOutput"') < home.text.index('id="rankingOutput"')
     for marker in [
-        'APP_VERSION = "potential-20260607-scroll-fix-v1"',
+        'APP_VERSION = "potential-20260607-research-v2-v1"',
         "loadCloudSettings",
         "saveSettingsToCloud",
         "/api/potential-stocks/settings",
@@ -128,7 +128,7 @@ def main() -> None:
 
     health = client.get("/health")
     assert health.status_code == 200
-    assert health.json()["backend_version"] == "potential-20260607-auto-research-v1"
+    assert health.json()["backend_version"] == "potential-20260607-research-v2-v1"
     assert health.json()["storage"]["backend"] in {"local", "supabase"}
 
     storage_status = client.get("/api/storage/status")
@@ -174,10 +174,15 @@ def main() -> None:
     assert "_should_plan_trade_today" in service_py
     assert "ResearchCollectRequest" in service_py
     assert "資料覆蓋" in service_py
+    assert "_event_intelligence" in service_py
 
     fetchers_py = (ROOT / "backend" / "services" / "fetchers.py").read_text(encoding="utf-8")
     assert "_news_query" in fetchers_py
     assert "pageSize" in fetchers_py
+    assert "OfficialResearchFetcher" in fetchers_py
+    official_py = (ROOT / "backend" / "services" / "official_research.py").read_text(encoding="utf-8")
+    for marker in ["MOPS 重大訊息", "TWSE 上市公司每日重大訊息", "TPEx 上櫃公司每日重大訊息", "公司 IR", "法說會/簡報", "供應鏈關鍵字搜尋"]:
+        assert marker in official_py
 
     scan = client.post(
         "/api/potential-stocks",
@@ -210,6 +215,8 @@ def main() -> None:
         assert field in payload["analyses"][0]
     assert "us_tech_leading" in payload["analyses"][0]["component_scores"]
     assert "smart_money_quality" in payload["analyses"][0]["component_scores"]
+    assert "event_intel" in payload["analyses"][0]["component_scores"]
+    assert "evidence_links" in payload["analyses"][0]
     analysis_text = " ".join(
         str(value)
         for field in ("risks", "related_news", "data_limitations")
