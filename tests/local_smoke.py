@@ -39,7 +39,7 @@ def main() -> None:
         "switchStorageButton",
         "storageStatus",
         "納入前一晚美股科技 / 半導體領先因子",
-        "potential-20260607-research-v2-v1",
+        "potential-20260608-stock-profile-research-v1",
     ]:
         assert marker in home.text
 
@@ -62,7 +62,7 @@ def main() -> None:
         assert marker in home.text
     assert home.text.index('id="dailyOutput"') < home.text.index('id="rankingOutput"')
     for marker in [
-        'APP_VERSION = "potential-20260607-research-v2-v1"',
+        'APP_VERSION = "potential-20260608-stock-profile-research-v1"',
         "loadCloudSettings",
         "saveSettingsToCloud",
         "/api/potential-stocks/settings",
@@ -128,7 +128,7 @@ def main() -> None:
 
     health = client.get("/health")
     assert health.status_code == 200
-    assert health.json()["backend_version"] == "potential-20260607-research-v2-v1"
+    assert health.json()["backend_version"] == "potential-20260608-stock-profile-research-v1"
     assert health.json()["storage"]["backend"] in {"local", "supabase"}
 
     storage_status = client.get("/api/storage/status")
@@ -181,7 +181,7 @@ def main() -> None:
     assert "pageSize" in fetchers_py
     assert "OfficialResearchFetcher" in fetchers_py
     official_py = (ROOT / "backend" / "services" / "official_research.py").read_text(encoding="utf-8")
-    for marker in ["MOPS 重大訊息", "TWSE 上市公司每日重大訊息", "TPEx 上櫃公司每日重大訊息", "公司 IR", "法說會/簡報", "供應鏈關鍵字搜尋"]:
+    for marker in ["MOPS 重大訊息", "TWSE 上市公司每日重大訊息", "TPEx 上櫃公司每日重大訊息", "公司 IR", "法說會/簡報", "供應鏈關鍵字搜尋", "STOCK_PROFILES", "fetch_stock_driven_web_intel", "relevance_score", "web_search"]:
         assert marker in official_py
 
     scan = client.post(

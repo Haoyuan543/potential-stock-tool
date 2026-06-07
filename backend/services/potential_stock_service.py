@@ -1574,7 +1574,7 @@ class PotentialStockService:
             "conference_material": 3,
             "supply_chain_search": 2,
         }
-        positive_keywords = ("AI", "CoWoS", "HBM", "ASIC", "訂單", "產能", "擴產", "NVIDIA", "輝達", "先進封裝", "GB200", "CPO", "液冷", "upgrade", "guidance")
+        positive_keywords = ("AI", "CoWoS", "HBM", "ASIC", "訂單", "產能", "擴產", "NVIDIA", "輝達", "先進封裝", "GB200", "GB300", "CPO", "液冷", "運價", "SCFI", "市占", "法說", "upgrade", "guidance")
         negative_keywords = ("處置", "注意", "裁罰", "訴訟", "下修", "減產", "缺料", "風險", "downgrade", "weak", "miss")
         score = 50
         summary: list[str] = []
@@ -1584,8 +1584,10 @@ class PotentialStockService:
             value = point.value if isinstance(point.value, dict) else {}
             tier = str(value.get("tier") or "news")
             credibility = self._float_or_none(value.get("credibility")) or 55
+            relevance = self._float_or_none(value.get("relevance_score")) or 0
             text = " ".join([str(point.name or ""), str(value.get("summary") or point.value or "")])
             score += tier_weight.get(tier, 1) * max(0.6, credibility / 100)
+            score += min(8, relevance / 12)
             score += sum(2 for keyword in positive_keywords if keyword.lower() in text.lower())
             if any(keyword.lower() in text.lower() for keyword in negative_keywords):
                 score -= 4
@@ -1595,8 +1597,11 @@ class PotentialStockService:
             tier = str(value.get("tier") or "news")
             tier_label = self._tier_label(tier)
             summary_text = str(value.get("summary") or point.name or "")
-            keywords = value.get("matched_keywords") if isinstance(value.get("matched_keywords"), list) else []
-            keyword_text = f"；命中關鍵字：{', '.join(str(item) for item in keywords[:4])}" if keywords else ""
+            drivers = value.get("drivers_hit") if isinstance(value.get("drivers_hit"), list) else []
+            risks_hit = value.get("risk_terms_hit") if isinstance(value.get("risk_terms_hit"), list) else []
+            leaders = value.get("us_leaders_hit") if isinstance(value.get("us_leaders_hit"), list) else []
+            hits = [*drivers[:4], *leaders[:2], *risks_hit[:2]]
+            keyword_text = f"；股性命中：{', '.join(str(item) for item in hits[:5])}" if hits else ""
             summary.append(f"{tier_label}｜{point.source}：{point.name}。{summary_text[:120]}{keyword_text}")
         return int(max(0, min(100, round(score)))), summary, risks[:4], evidence[:5]
 
@@ -1604,17 +1609,18 @@ class PotentialStockService:
         tier_rank = {
             "official_mops": 0,
             "exchange_alert": 1,
-            "company_ir": 2,
-            "conference_material": 3,
-            "supply_chain_search": 4,
-            "news": 5,
+            "supply_chain_search": 2,
+            "news": 3,
+            "company_ir": 4,
+            "conference_material": 5,
         }
         candidates: list[DataPoint] = [point for point in [*dataset.events, *dataset.news] if not point.missing and point.url]
         def rank(point: DataPoint) -> tuple[int, int]:
             value = point.value if isinstance(point.value, dict) else {}
             tier = str(value.get("tier") or ("news" if point in dataset.news else "supply_chain_search"))
             credibility = int(self._float_or_none(value.get("credibility")) or 50)
-            return tier_rank.get(tier, 9), -credibility
+            relevance = int(self._float_or_none(value.get("relevance_score")) or 0)
+            return tier_rank.get(tier, 9), -(credibility + relevance)
         candidates.sort(key=rank)
         links: list[dict[str, Any]] = []
         seen: set[str] = set()

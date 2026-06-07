@@ -13,6 +13,7 @@ import backend.services.research_collector as research_collector_module
 from backend.config import get_settings
 from backend.main import app
 from backend.models import DataPoint, MarketDataset, PotentialBacktestRequest, PotentialStockRequest, PriceBar
+from backend.services.official_research import OfficialResearchFetcher
 from backend.services.potential_stock_cron import PotentialStockCronRunner
 from backend.services.potential_stock_service import PotentialStockService
 from backend.services.research_collector import ResearchCollectRequest, ResearchCollectorService
@@ -55,6 +56,35 @@ class PotentialStockServiceTest(unittest.TestCase):
 
         self.assertEqual(request.risk_reward_profile, "balanced")
         self.assertEqual(request.investment_horizon, "mid_term_3m")
+
+    def test_official_research_profiles_are_stock_specific(self) -> None:
+        fetcher = OfficialResearchFetcher()
+        tsmc = fetcher.profile_for("2330")
+        evergreen = fetcher.profile_for("2603")
+
+        self.assertIn("CoWoS", tsmc["drivers"])
+        self.assertIn("NVIDIA", tsmc["drivers"])
+        self.assertIn("SCFI", evergreen["drivers"])
+        self.assertIn("紅海", evergreen["drivers"])
+        self.assertNotEqual(tsmc["role"], evergreen["role"])
+
+    def test_official_research_scores_stock_driver_relevance(self) -> None:
+        fetcher = OfficialResearchFetcher()
+        profile = fetcher.profile_for("2330")
+        point = fetcher._point(
+            "股性網路搜尋",
+            "台積電 CoWoS 產能受惠 NVIDIA AI 訂單",
+            "CoWoS、HBM 與先進封裝需求升溫。",
+            "supply_chain_search",
+            "https://example.com/tsmc-cowos",
+            62,
+            profile,
+        )
+
+        self.assertIsInstance(point.value, dict)
+        self.assertGreaterEqual(point.value["relevance_score"], 20)
+        self.assertIn("CoWoS", point.value["drivers_hit"])
+        self.assertIn("NVIDIA", point.value["drivers_hit"])
 
     def test_scoring_and_paper_trade_buy_candidate_has_chinese_name(self) -> None:
         dataset = self._strong_dataset("2330")
