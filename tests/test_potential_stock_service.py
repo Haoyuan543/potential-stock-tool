@@ -1117,7 +1117,7 @@ class PotentialStockApiTest(unittest.TestCase):
                     "token": "unit-test-secret",
                 },
             )
-            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.status_code, 202)
             payload = response.json()
             self.assertTrue(payload["ok"])
             self.assertTrue(payload["accepted"])

@@ -128,7 +128,7 @@ def main() -> None:
 
     health = client.get("/health")
     assert health.status_code == 200
-    assert health.json()["backend_version"] == "potential-20260607-cloud-settings-sequence"
+    assert health.json()["backend_version"] == "potential-20260607-detached-cron"
     assert health.json()["storage"]["backend"] in {"local", "supabase"}
 
     storage_status = client.get("/api/storage/status")
@@ -148,7 +148,7 @@ def main() -> None:
     assert "dashboard_basic_auth" in main_py
     assert "/api/storage/backend" in main_py
     assert "send_potential_stock_report_email" in main_py
-    assert "BackgroundTasks" in main_py
+    assert "asyncio.create_task" in main_py
     assert "_run_potential_stock_cron_background" in main_py
     storage_py = (ROOT / "backend" / "services" / "storage.py").read_text(encoding="utf-8")
     assert "SupabaseJsonStore" in storage_py
