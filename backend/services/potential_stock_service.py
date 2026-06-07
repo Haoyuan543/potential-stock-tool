@@ -256,7 +256,7 @@ class PotentialStockService:
         else:
             portfolio = self._paper_trade_with_ledger(analyses, request, case_id=case_id)
         market_stance = self._market_stance(analyses)
-        limitations = sorted({item for analysis in analyses for item in analysis.data_limitations})
+        limitations = self._friendly_data_messages(sorted({item for analysis in analyses for item in analysis.data_limitations}))
         markdown = self._markdown(request, market_stance, analyses, portfolio, limitations)
         ai_summary = ""
         ai_mode = "disabled"
@@ -451,7 +451,7 @@ class PotentialStockService:
         markdown = str(row.get("markdown") or "").strip()
         if not markdown:
             markdown = self._immutable_record_markdown(row, analyses, portfolio)
-        limitations = list(row.get("data_limitations") or [])
+        limitations = self._friendly_data_messages(list(row.get("data_limitations") or []))
         immutable_note = "已有不可變紀錄：existing daily plan/trade data was replayed without changing trade decisions."
         if immutable_note not in limitations:
             limitations.append(immutable_note)
@@ -1307,7 +1307,13 @@ class PotentialStockService:
         action = "BUY" if score >= request.buy_score else "WATCH" if score >= request.watch_score else "AVOID"
         risk_level = "High" if data_score < 45 or score < 50 else "Medium" if score < 75 else "Low"
         advantages = self._advantages(component_scores)
-        risks = news_risks + self._risks(component_scores, dataset)
+        risks = self._friendly_data_messages(news_risks + self._risks(component_scores, dataset))
+        related_news = self._friendly_data_messages(related_news)
+        technical_summary = self._friendly_data_messages(technical_summary)
+        fundamental_summary = self._friendly_data_messages(fundamental_summary)
+        institutional_summary = self._friendly_data_messages(institutional_summary)
+        operating_summary = self._friendly_data_messages(operating_summary)
+        data_limitations = self._friendly_data_messages(dataset.limitations)
         thesis = self._thesis(symbol, company_name, score, action, advantages, risks)
         return PotentialStockAnalysis(
             symbol=symbol,
@@ -1324,7 +1330,7 @@ class PotentialStockService:
             advantages=advantages,
             risks=risks,
             related_news=related_news,
-            data_limitations=dataset.limitations,
+            data_limitations=data_limitations,
             latest_price=latest_price,
             latest_open=latest_open,
             thesis=thesis,
@@ -1523,6 +1529,69 @@ class PotentialStockService:
         score -= 10 if not dataset.news or all(point.missing for point in dataset.news) else 0
         score -= min(25, len(dataset.limitations) * 6)
         return int(max(0, min(100, score)))
+
+    def _friendly_data_message(self, value: object) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        lower = text.lower()
+        has_data_gap_marker = any(
+            marker in lower
+            for marker in (
+                "data missing",
+                "data limitation",
+                "unavailable",
+                "not configured",
+                "fetch failed",
+                "no recent news",
+                "news/event feed",
+                "us leading",
+                "ohlcv",
+                "price history",
+                "institutional trading data",
+            )
+        )
+        if not has_data_gap_marker:
+            return text
+        if "us leading data missing" in lower:
+            return "前一晚美股科技/半導體領先資料暫未取得；本次以產業曝險等級保守估算，盤中需再用實際價格確認。"
+        if "no recent news" in lower:
+            return "近期新聞來源暫未取得；本次新聞分數採保守估計，需搭配公告、營收與籌碼確認。"
+        if "news/event feed" in lower or "newsapi" in lower or "news articles" in lower:
+            return "新聞與事件資料源暫時無法取得，事件風險覆蓋不完整。"
+        if "live data disabled" in lower:
+            return "本次未啟用即時資料，僅能用既有或測試資料做保守模擬。"
+        if "price history" in lower or "ohlcv" in lower or "stock ohlcv" in lower:
+            return "股價歷史資料不足，技術面與成交回填需降低信心。"
+        if "fundamental" in lower or "monthly revenue" in lower or "revenue growth" in lower or "eps" in lower:
+            return "基本面或營收資料不足，暫以保守分數處理，需補營收、EPS 或法說資訊。"
+        if "institutional" in lower:
+            return "法人籌碼資料不足，暫時不能確認買賣超是否連續。"
+        if "benchmark" in lower:
+            return "Benchmark 資料不足，績效比較信心較低。"
+        if lower.startswith("data missing:"):
+            text = text.split(":", 1)[1].strip()
+        if lower.startswith("data limitation:"):
+            text = text.split(":", 1)[1].strip()
+        replacements = {
+            "unavailable": "尚未取得",
+            "not configured": "尚未設定",
+            "fetch failed": "抓取失敗",
+            "fallback": "備援估算",
+            "no ": "未取得 ",
+        }
+        for source, target in replacements.items():
+            text = text.replace(source, target)
+        return f"資料不足：{text}" if not text.startswith(("資料", "新聞", "法人", "基本面", "股價", "前一晚", "本次", "Benchmark")) else text
+
+    def _friendly_data_messages(self, values: list[object]) -> list[str]:
+        cleaned: list[str] = []
+        for value in values or []:
+            message = self._friendly_data_message(value)
+            if message and message not in cleaned:
+                cleaned.append(message)
+        return cleaned
+
     def _paper_trade(self, analyses: list[PotentialStockAnalysis], request: PotentialStockRequest) -> PaperPortfolio:
         cash = request.initial_capital
         invested = 0.0
@@ -2083,7 +2152,7 @@ def _potential_risks_v2(self: PotentialStockService, scores: dict[str, int], dat
         risks.append("\u524d\u4e00\u665a\u7f8e\u80a1\u79d1\u6280/\u534a\u5c0e\u9ad4\u9818\u5148\u8a0a\u865f\u504f\u5f31\uff0c\u53f0\u80a1\u958b\u76e4\u524d\u9700\u964d\u4f4e\u8ffd\u50f9\u885d\u52d5\u3002")
     if scores.get("data_quality", 50) < 60:
         risks.append("\u8cc7\u6599\u54c1\u8cea\u4e0d\u8db3\uff0c\u6a21\u64ec\u64cd\u4f5c\u61c9\u964d\u4f4e\u90e8\u4f4d\u6216\u7b49\u5f85\u88dc\u9f4a\u8cc7\u6599\u3002")
-    risks.extend(dataset.limitations[:3])
+    risks.extend(self._friendly_data_messages(dataset.limitations[:3]))
     return risks[:7] or ["\u66ab\u7121\u91cd\u5927\u98a8\u96aa\u8a0a\u865f\uff0c\u4f46\u4ecd\u9700\u7528\u76e4\u4e2d\u50f9\u78ba\u8a8d\u662f\u5426\u6210\u4ea4\u3002"]
 
 

@@ -128,7 +128,7 @@ def main() -> None:
 
     health = client.get("/health")
     assert health.status_code == 200
-    assert health.json()["backend_version"] == "potential-20260607-cron-runner-refactor"
+    assert health.json()["backend_version"] == "potential-20260607-data-language-v1"
     assert health.json()["storage"]["backend"] in {"local", "supabase"}
 
     storage_status = client.get("/api/storage/status")
@@ -201,6 +201,14 @@ def main() -> None:
         assert field in payload["analyses"][0]
     assert "us_tech_leading" in payload["analyses"][0]["component_scores"]
     assert "smart_money_quality" in payload["analyses"][0]["component_scores"]
+    analysis_text = " ".join(
+        str(value)
+        for field in ("risks", "related_news", "data_limitations")
+        for value in payload["analyses"][0].get(field, [])
+    )
+    assert "Data Missing" not in analysis_text
+    assert "unavailable" not in analysis_text
+    assert "US Leading Data Missing" not in analysis_text
     assert payload["portfolio"]["holdings"] == []
     assert "replacement_suggestions" in payload["portfolio"]
 

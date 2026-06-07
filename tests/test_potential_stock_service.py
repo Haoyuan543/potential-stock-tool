@@ -93,7 +93,8 @@ class PotentialStockServiceTest(unittest.TestCase):
 
         self.assertIn("us_tech_leading", analysis.component_scores)
         self.assertGreaterEqual(analysis.component_scores["us_tech_leading"], 55)
-        self.assertTrue(any("US Leading Data Missing" in item for item in analysis.data_limitations))
+        self.assertTrue(any("美股科技" in item and "保守估算" in item for item in analysis.data_limitations))
+        self.assertFalse(any("US Leading Data Missing" in item for item in analysis.data_limitations))
         self.assertTrue(any("NVDA" in item or "QQQ" in item for item in analysis.us_market_summary))
 
     def test_us_tech_leading_factor_uses_actual_leader_context_when_available(self) -> None:
@@ -196,6 +197,25 @@ class PotentialStockServiceTest(unittest.TestCase):
         self.assertEqual(analysis.action, "AVOID")
         self.assertEqual(portfolio.cash, 1_000_000)
         self.assertEqual(portfolio.invested_value, 0)
+
+    def test_potential_stock_analysis_hides_engineering_missing_language(self) -> None:
+        request = PotentialStockRequest(symbols=["2330.TW"], use_live_data=True, persist=False)
+        dataset = MarketDataset(
+            ticker="2330.TW",
+            limitations=[
+                "Data Missing: news/event feed unavailable.",
+                "US Leading Data Missing: US market leader prices unavailable; using exposure-based fallback score.",
+            ],
+        )
+
+        analysis = self.service._analyze_dataset(dataset, request)
+        combined = "\n".join(analysis.related_news + analysis.risks + analysis.data_limitations)
+
+        self.assertNotIn("Data Missing", combined)
+        self.assertNotIn("unavailable", combined)
+        self.assertNotIn("US Leading Data Missing", combined)
+        self.assertIn("新聞與事件資料源暫時無法取得", combined)
+        self.assertIn("美股科技/半導體領先資料暫未取得", combined)
 
     def test_auto_report_session_resolves_by_taiwan_market_time(self) -> None:
         self.assertEqual(self.service._resolve_report_session("auto", datetime(2026, 6, 5, 8, 30, tzinfo=TW_TEST_TZ)), "pre_market")

@@ -27,7 +27,7 @@ from backend.services.storage import set_runtime_storage_backend, storage_status
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
-BACKEND_VERSION = "potential-20260607-cron-runner-refactor"
+BACKEND_VERSION = "potential-20260607-data-language-v1"
 
 app = FastAPI(title="AI Alpha Research Platform", version="0.2.0")
 app.add_middleware(
