@@ -474,7 +474,7 @@ async function persistCurrentSettings() {
   } catch {
     // localStorage may be unavailable in private or restricted browser contexts.
   }
-  const response = await fetch("/api/potential-stocks/settings", {
+  const response = await fetch(apiUrl("/api/potential-stocks/settings"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(readInputs("pre_market", { persist: true }))
@@ -485,7 +485,7 @@ async function persistCurrentSettings() {
 
 async function loadCloudSettings() {
   try {
-    const response = await fetch("/api/potential-stocks/settings");
+    const response = await fetch(apiUrl("/api/potential-stocks/settings"));
     if (!response.ok) throw new Error(await response.text());
     const result = await response.json();
     const settings = apiSettingsToUi(result.settings || {});
@@ -498,6 +498,10 @@ async function loadCloudSettings() {
   } catch (error) {
     showActionStatus(`雲端設定讀取失敗，先使用本機設定：${friendlyError(error.message)}`, "partial");
   }
+}
+
+function apiUrl(path) {
+  return `${window.location.protocol}//${window.location.host}${path}`;
 }
 
 async function saveSettingsToCloud() {
