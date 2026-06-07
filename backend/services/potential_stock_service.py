@@ -19,7 +19,12 @@ from backend.models import (
 )
 from backend.services.fetchers import MarketDataFetcher
 from backend.services.openai_service import OpenAIResearchService
-from backend.services.storage import potential_stock_case_store, potential_stock_ledger_store, potential_stock_store
+from backend.services.storage import (
+    potential_stock_case_store,
+    potential_stock_ledger_store,
+    potential_stock_settings_store,
+    potential_stock_store,
+)
 
 
 TW_TZ = timezone(timedelta(hours=8))
@@ -69,6 +74,7 @@ class PotentialStockService:
     US_TECH_LEADERS = ["NVDA", "AMD", "AVGO", "TSM", "ASML", "AMAT", "LRCX", "KLAC", "MU", "QQQ", "SMH", "SOXX"]
     HIGH_US_TECH_EXPOSURE = {"2330.TW", "2454.TW", "2303.TW", "2379.TW", "3034.TW", "3711.TW", "3443.TW", "3661.TW"}
     MEDIUM_US_TECH_EXPOSURE = {"2317.TW", "2382.TW", "3231.TW", "2356.TW", "6669.TW", "3017.TW", "2308.TW", "4938.TW"}
+    DEFAULT_SYMBOLS = ["2330.TW", "2454.TW", "2303.TW", "2379.TW", "3034.TW", "3711.TW", "3443.TW", "3661.TW"]
 
     def __init__(self) -> None:
         self.fetcher = MarketDataFetcher()
@@ -359,6 +365,61 @@ class PotentialStockService:
         rows = [row for row in potential_stock_ledger_store.all() if self._record_case_id(row) == selected_case_id]
         rows.sort(key=lambda item: str(item.get("generated_at") or ""))
         return rows[-1] if rows else None
+
+    def default_settings(self) -> dict[str, Any]:
+        request = PotentialStockRequest(symbols=self.DEFAULT_SYMBOLS, market_universes=["semiconductor", "electronics"])
+        return self._settings_from_request(request)
+
+    def settings(self) -> dict[str, Any]:
+        rows = [row for row in potential_stock_settings_store.all() if row.get("event") == "settings_saved"]
+        rows.sort(key=lambda item: str(item.get("saved_at") or ""))
+        default_settings = self.default_settings()
+        if not rows:
+            return {"settings": default_settings, "saved_at": "", "source": "default"}
+        latest = rows[-1]
+        raw_settings = latest.get("settings") or {}
+        try:
+            parsed = self._request_from_settings(raw_settings).model_dump(mode="json")
+        except Exception:
+            parsed = default_settings
+        return {
+            "settings": {**default_settings, **parsed},
+            "saved_at": latest.get("saved_at") or "",
+            "source": "saved",
+        }
+
+    def save_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
+        request = self._request_from_settings(settings)
+        normalized = self._settings_from_request(request)
+        record = {
+            "event": "settings_saved",
+            "saved_at": datetime.now(TW_TZ).isoformat(),
+            "settings": normalized,
+        }
+        potential_stock_settings_store.append(record)
+        return {"settings": normalized, "saved_at": record["saved_at"], "source": "saved"}
+
+    def request_from_saved_settings(self, report_session: str, persist: bool = True) -> PotentialStockRequest:
+        settings = self.settings()["settings"]
+        settings = {**settings, "report_session": report_session, "persist": persist}
+        return self._request_from_settings(settings)
+
+    def sequence_check(self, report_session: str, persist: bool = True, case_id: str | None = None) -> dict[str, Any]:
+        session = self._resolve_report_session(report_session)
+        if not persist or session == "pre_market":
+            return {"allowed": True, "report_session": session, "required_session": ""}
+        required = "pre_market" if session == "market_hours" else "market_hours"
+        selected_case_id = case_id or self.active_case_id()
+        if self._today_report_record(required, case_id=selected_case_id):
+            return {"allowed": True, "report_session": session, "required_session": required}
+        labels = {"pre_market": "盤前分析選股", "market_hours": "盤中模擬交易", "post_market": "盤後結算"}
+        return {
+            "allowed": False,
+            "report_session": session,
+            "required_session": required,
+            "case_id": selected_case_id,
+            "reason": f"今日尚未完成{labels[required]}，所以先略過{labels[session]}，避免流程順序錯亂。",
+        }
 
     def history(self, limit: int = 30, case_id: str | None = None) -> list[dict[str, Any]]:
         selected_case_id = case_id or self.active_case_id()
@@ -1784,6 +1845,40 @@ class PotentialStockService:
             "slippage_bps": request.slippage_bps,
             "benchmark_symbol": request.benchmark_symbol,
         }
+
+    def _settings_from_request(self, request: PotentialStockRequest) -> dict[str, Any]:
+        return {
+            "symbols": self._normalize_symbols(request.symbols or self.DEFAULT_SYMBOLS),
+            "market_universe": request.market_universe,
+            "market_universes": request.market_universes or [request.market_universe],
+            "initial_capital": request.initial_capital,
+            "max_positions": request.max_positions,
+            "max_position_pct": request.max_position_pct,
+            "buy_score": request.buy_score,
+            "watch_score": request.watch_score,
+            "sell_score": request.sell_score,
+            "stop_loss_pct": request.stop_loss_pct,
+            "take_profit_pct": request.take_profit_pct,
+            "swap_score_gap": request.swap_score_gap,
+            "min_hold_days": request.min_hold_days,
+            "fee_rate": request.fee_rate,
+            "tax_rate": request.tax_rate,
+            "slippage_bps": request.slippage_bps,
+            "benchmark_symbol": request.benchmark_symbol,
+            "strategy_version": request.strategy_version,
+            "risk_reward_profile": request.risk_reward_profile,
+            "investment_horizon": request.investment_horizon,
+            "use_live_data": request.use_live_data,
+            "use_us_tech_leading": request.use_us_tech_leading,
+            "use_ai_analysis": request.use_ai_analysis,
+        }
+
+    def _request_from_settings(self, settings: dict[str, Any]) -> PotentialStockRequest:
+        data = {**self.default_settings(), **(settings or {})}
+        symbols = data.get("symbols") or []
+        if isinstance(symbols, str):
+            data["symbols"] = [item.strip() for item in symbols.replace(";", ",").split(",") if item.strip()]
+        return PotentialStockRequest.model_validate(data)
 
     def _analysis_only_portfolio(self, analyses: list[PotentialStockAnalysis], request: PotentialStockRequest) -> PaperPortfolio:
         trades = [

@@ -28,7 +28,7 @@ from backend.services.storage import set_runtime_storage_backend, storage_status
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
-BACKEND_VERSION = "potential-20260607-market-hours"
+BACKEND_VERSION = "potential-20260607-cloud-settings-sequence"
 
 app = FastAPI(title="AI Alpha Research Platform", version="0.2.0")
 app.add_middleware(
@@ -123,6 +123,7 @@ class CronPotentialStockRequest(PotentialStockRequest):
     token: str = ""
     send_email: bool | None = None
     background: bool = False
+    use_saved_settings: bool = True
 
 
 def _authorize_cron(token: str = "", header_token: str = "") -> None:
@@ -159,6 +160,19 @@ def _cron_response(report_session: str, report: object, email_result: dict | Non
         "total_value": getattr(getattr(report, "portfolio", None), "total_value", None),
         "data_limitations": getattr(report, "data_limitations", []),
         "markdown": getattr(report, "markdown", ""),
+    }
+
+
+def _cron_sequence_skip_response(sequence: dict) -> dict:
+    return {
+        "ok": True,
+        "accepted": False,
+        "skipped": True,
+        "background": False,
+        "report_session": sequence.get("report_session"),
+        "required_session": sequence.get("required_session"),
+        "case_id": sequence.get("case_id"),
+        "reason": sequence.get("reason") or "Skipped by cron sequence guard.",
     }
 
 
@@ -290,6 +304,16 @@ async def potential_stocks(request: PotentialStockRequest) -> dict:
     return report.model_dump(mode="json")
 
 
+@app.get("/api/potential-stocks/settings")
+async def potential_stock_settings() -> dict:
+    return potential_stock_service.settings()
+
+
+@app.post("/api/potential-stocks/settings")
+async def potential_stock_save_settings(request: PotentialStockRequest) -> dict:
+    return potential_stock_service.save_settings(request.model_dump(mode="json"))
+
+
 @app.get("/api/potential-stocks/history")
 async def potential_stock_history(limit: int = 30, case_id: str | None = None) -> dict:
     return {"records": potential_stock_service.history(limit=limit, case_id=case_id)}
@@ -370,22 +394,29 @@ async def cron_potential_stocks(
     use_us_tech_leading: bool = Query(True),
     send_email: bool | None = Query(None),
     background: bool = Query(False),
+    use_saved_settings: bool = Query(True),
 ) -> dict:
     _authorize_cron(token, x_cron_token)
-    request = PotentialStockRequest(
-        symbols=[item.strip() for item in symbols.replace(";", ",").split(",") if item.strip()],
-        market_universe=market_universe,
-        initial_capital=initial_capital,
-        max_positions=max_positions,
-        strategy_version=strategy_version,
-        risk_reward_profile=risk_reward_profile,
-        investment_horizon=investment_horizon,
-        report_session=session,
-        use_ai_analysis=use_ai_analysis,
-        use_live_data=use_live_data,
-        use_us_tech_leading=use_us_tech_leading,
-        persist=persist,
-    )
+    if use_saved_settings:
+        request = potential_stock_service.request_from_saved_settings(session, persist=persist)
+    else:
+        request = PotentialStockRequest(
+            symbols=[item.strip() for item in symbols.replace(";", ",").split(",") if item.strip()],
+            market_universe=market_universe,
+            initial_capital=initial_capital,
+            max_positions=max_positions,
+            strategy_version=strategy_version,
+            risk_reward_profile=risk_reward_profile,
+            investment_horizon=investment_horizon,
+            report_session=session,
+            use_ai_analysis=use_ai_analysis,
+            use_live_data=use_live_data,
+            use_us_tech_leading=use_us_tech_leading,
+            persist=persist,
+        )
+    sequence = potential_stock_service.sequence_check(session, persist=persist)
+    if not sequence["allowed"]:
+        return _cron_sequence_skip_response(sequence)
     if background:
         background_tasks.add_task(_run_potential_stock_cron_background, request, session, send_email)
         return {"ok": True, "accepted": True, "background": True, "report_session": session}
@@ -395,7 +426,14 @@ async def cron_potential_stocks(
 @app.post("/api/cron/potential-stocks")
 async def cron_potential_stocks_post(request: CronPotentialStockRequest, background_tasks: BackgroundTasks, x_cron_token: str = Header(default="")) -> dict:
     _authorize_cron(request.token, x_cron_token)
-    safe_request = request.model_copy(update={"token": "", "background": False})
+    safe_request = (
+        potential_stock_service.request_from_saved_settings(request.report_session, persist=request.persist)
+        if request.use_saved_settings
+        else PotentialStockRequest.model_validate(request.model_dump(mode="json"))
+    )
+    sequence = potential_stock_service.sequence_check(safe_request.report_session, persist=safe_request.persist)
+    if not sequence["allowed"]:
+        return _cron_sequence_skip_response(sequence)
     if request.background:
         background_tasks.add_task(_run_potential_stock_cron_background, safe_request, safe_request.report_session, request.send_email)
         return {"ok": True, "accepted": True, "background": True, "report_session": safe_request.report_session}

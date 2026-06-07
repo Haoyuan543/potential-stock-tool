@@ -39,7 +39,7 @@ def main() -> None:
         "switchStorageButton",
         "storageStatus",
         "納入前一晚美股科技/半導體領先因子",
-        "potential-20260607-cloud-switch-auth",
+        "potential-20260607-cloud-settings-sequence",
     ]:
         assert marker in home.text
 
@@ -62,7 +62,10 @@ def main() -> None:
         assert marker in home.text
     assert home.text.index('id="dailyOutput"') < home.text.index('id="rankingOutput"')
     for marker in [
-        'APP_VERSION = "potential-20260607-cloud-switch-auth"',
+        'APP_VERSION = "potential-20260607-cloud-settings-sequence"',
+        "loadCloudSettings",
+        "saveSettingsToCloud",
+        "/api/potential-stocks/settings",
         'scanButton.addEventListener("click"',
         'intradayButton.addEventListener("click"',
         'resetCaseButton.addEventListener("click"',
@@ -125,7 +128,7 @@ def main() -> None:
 
     health = client.get("/health")
     assert health.status_code == 200
-    assert health.json()["backend_version"] == "potential-20260607-market-hours"
+    assert health.json()["backend_version"] == "potential-20260607-cloud-settings-sequence"
     assert health.json()["storage"]["backend"] in {"local", "supabase"}
 
     storage_status = client.get("/api/storage/status")
@@ -135,6 +138,10 @@ def main() -> None:
     switch_storage = client.post("/api/storage/backend", json={"backend": "local"})
     assert switch_storage.status_code == 200
     assert switch_storage.json()["backend"] == "local"
+
+    settings_response = client.get("/api/potential-stocks/settings")
+    assert settings_response.status_code == 200
+    assert "settings" in settings_response.json()
 
     main_py = (ROOT / "backend" / "main.py").read_text(encoding="utf-8")
     assert "Delete actions are allowed only from localhost or with CRON_JOB_SECRET" in main_py

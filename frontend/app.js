@@ -34,7 +34,7 @@ const resetSettingsButton = document.querySelector("#resetSettingsButton");
 const storageBackendInput = document.querySelector("#storageBackendInput");
 const switchStorageButton = document.querySelector("#switchStorageButton");
 const storageStatus = document.querySelector("#storageStatus");
-const APP_VERSION = "potential-20260607-cloud-switch-auth";
+const APP_VERSION = "potential-20260607-cloud-settings-sequence";
 const SETTINGS_KEY = "potentialStockToolSettings";
 
 const universeSymbols = {
@@ -90,7 +90,7 @@ intradayButton.addEventListener("click", () => runPotentialStocks("market_hours"
 postMarketButton.addEventListener("click", () => runPotentialStocks("post_market"));
 branchSummaryButton.addEventListener("click", () => loadBranchSummary(selectedCaseId || activeCaseId));
 resetCaseButton.addEventListener("click", resetCase);
-saveSettingsButton.addEventListener("click", saveSettings);
+saveSettingsButton.addEventListener("click", saveSettingsToCloud);
 resetSettingsButton.addEventListener("click", resetSettingsToDefault);
 if (switchStorageButton) switchStorageButton.addEventListener("click", switchStorageBackend);
 downloadButton.addEventListener("click", downloadMarkdown);
@@ -147,6 +147,7 @@ async function checkHealth() {
       showNotice("FinMind token 尚未設定；即時資料可能不足，盤前/盤中結果會偏向保守。", "partial");
     }
     await loadStorageStatus();
+    await loadCloudSettings();
     await loadCases();
     await loadDailyStatus(false);
     await loadLedger();
@@ -189,6 +190,7 @@ async function switchStorageBackend() {
     selectedCaseId = "";
     activeCaseId = "";
     await loadStorageStatus();
+    await loadCloudSettings();
     await loadCases();
     await loadDailyStatus(false);
     await loadLedger();
@@ -435,6 +437,41 @@ function applySavedSettings() {
   applySettings(settings, { includeCapital: !capitalInput.disabled });
 }
 
+async function loadCloudSettings() {
+  try {
+    const response = await fetch("/api/potential-stocks/settings");
+    if (!response.ok) throw new Error(await response.text());
+    const result = await response.json();
+    const settings = apiSettingsToUi(result.settings || {});
+    try {
+      window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch {
+      // localStorage may be unavailable in private or restricted browser contexts.
+    }
+    applySettings({ ...DEFAULT_SETTINGS, ...settings }, { includeCapital: !capitalInput.disabled });
+  } catch (error) {
+    showActionStatus(`雲端設定讀取失敗，先使用本機設定：${friendlyError(error.message)}`, "partial");
+  }
+}
+
+async function saveSettingsToCloud() {
+  const settings = collectSettings();
+  try {
+    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    const response = await fetch("/api/potential-stocks/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(readInputs("pre_market", { persist: true }))
+    });
+    if (!response.ok) throw new Error(await response.text());
+    showNotice("設定已儲存；雲端排程會讀取這份設定。", "ok");
+    showActionStatus("設定已儲存到目前資料來源。", "ok");
+  } catch (error) {
+    showNotice(`設定儲存失敗：${error.message}`, "missing");
+    showActionStatus(`設定儲存失敗：${friendlyError(error.message)}`, "missing");
+  }
+}
+
 function saveSettings() {
   const settings = collectSettings();
   try {
@@ -514,6 +551,25 @@ function applySettings(settings, options = {}) {
   });
   universeInput.value = universes[0] || "semiconductor";
   updateUniverseSummary();
+}
+
+function apiSettingsToUi(settings) {
+  const merged = { ...DEFAULT_SETTINGS, ...(settings || {}) };
+  return {
+    ...merged,
+    symbols: Array.isArray(merged.symbols) ? merged.symbols.join(", ") : String(merged.symbols || DEFAULT_SETTINGS.symbols),
+    max_position_pct: percentFromApi(merged.max_position_pct, DEFAULT_SETTINGS.max_position_pct),
+    stop_loss_pct: percentFromApi(merged.stop_loss_pct, DEFAULT_SETTINGS.stop_loss_pct),
+    take_profit_pct: percentFromApi(merged.take_profit_pct, DEFAULT_SETTINGS.take_profit_pct),
+    fee_rate: percentFromApi(merged.fee_rate, DEFAULT_SETTINGS.fee_rate),
+    tax_rate: percentFromApi(merged.tax_rate, DEFAULT_SETTINGS.tax_rate)
+  };
+}
+
+function percentFromApi(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return number <= 1 ? Number((number * 100).toFixed(4)) : number;
 }
 
 function setValue(selector, value) {

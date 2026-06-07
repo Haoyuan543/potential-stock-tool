@@ -987,6 +987,71 @@ class PotentialStockApiTest(unittest.TestCase):
         self.assertIn("active_case_id", payload)
         self.assertIn("cases", payload)
 
+    def test_settings_api_persists_strategy_for_cloud_cron(self) -> None:
+        original_settings_store = potential_stock_module.potential_stock_settings_store
+        try:
+            potential_stock_module.potential_stock_settings_store = PotentialStockServiceTest()._memory_store([])
+            client = TestClient(app)
+            response = client.post(
+                "/api/potential-stocks/settings",
+                json={
+                    "symbols": ["2330.TW", "2454.TW"],
+                    "market_universes": ["semiconductor", "electronics"],
+                    "initial_capital": 3_000_000,
+                    "max_positions": 4,
+                    "max_position_pct": 0.15,
+                    "report_session": "pre_market",
+                    "use_live_data": False,
+                    "persist": True,
+                },
+            )
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertEqual(payload["settings"]["symbols"], ["2330.TW", "2454.TW"])
+            self.assertEqual(payload["settings"]["initial_capital"], 3_000_000)
+            self.assertEqual(payload["settings"]["max_positions"], 4)
+
+            saved = client.get("/api/potential-stocks/settings")
+            self.assertEqual(saved.status_code, 200)
+            self.assertEqual(saved.json()["settings"]["max_position_pct"], 0.15)
+        finally:
+            potential_stock_module.potential_stock_settings_store = original_settings_store
+
+    def test_cron_sequence_guard_skips_market_hours_without_premarket(self) -> None:
+        old_secret = os.environ.get("CRON_JOB_SECRET")
+        original_run_store = potential_stock_module.potential_stock_store
+        original_settings_store = potential_stock_module.potential_stock_settings_store
+        os.environ["CRON_JOB_SECRET"] = "unit-test-secret"
+        get_settings.cache_clear()
+        try:
+            potential_stock_module.potential_stock_store = PotentialStockServiceTest()._memory_store([])
+            potential_stock_module.potential_stock_settings_store = PotentialStockServiceTest()._memory_store([])
+            client = TestClient(app)
+            response = client.get(
+                "/api/cron/potential-stocks",
+                params={
+                    "session": "market_hours",
+                    "persist": "true",
+                    "background": "true",
+                    "token": "unit-test-secret",
+                },
+            )
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertTrue(payload["ok"])
+            self.assertTrue(payload["skipped"])
+            self.assertEqual(payload["required_session"], "pre_market")
+        finally:
+            potential_stock_module.potential_stock_store = original_run_store
+            potential_stock_module.potential_stock_settings_store = original_settings_store
+            if old_secret is None:
+                os.environ.pop("CRON_JOB_SECRET", None)
+            else:
+                os.environ["CRON_JOB_SECRET"] = old_secret
+            get_settings.cache_clear()
+
     def test_cron_endpoint_rejects_invalid_token(self) -> None:
         old_secret = os.environ.get("CRON_JOB_SECRET")
         os.environ["CRON_JOB_SECRET"] = "unit-test-secret"
@@ -1014,6 +1079,7 @@ class PotentialStockApiTest(unittest.TestCase):
                     "session": "market_hours",
                     "persist": "false",
                     "use_live_data": "false",
+                    "use_saved_settings": "false",
                     "send_email": "false",
                     "token": "unit-test-secret",
                 },
@@ -1045,6 +1111,7 @@ class PotentialStockApiTest(unittest.TestCase):
                     "session": "market_hours",
                     "persist": "false",
                     "use_live_data": "false",
+                    "use_saved_settings": "false",
                     "send_email": "false",
                     "background": "true",
                     "token": "unit-test-secret",
