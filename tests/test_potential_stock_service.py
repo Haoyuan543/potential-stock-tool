@@ -12,7 +12,7 @@ import backend.services.potential_stock_service as potential_stock_module
 import backend.services.research_collector as research_collector_module
 from backend.config import get_settings
 from backend.main import app
-from backend.models import DataPoint, MarketDataset, PaperPortfolio, PaperTradeDecision, PotentialBacktestRequest, PotentialStockRequest, PriceBar
+from backend.models import DataPoint, MarketDataset, PaperPortfolio, PaperTradeDecision, PotentialBacktestRequest, PotentialStockReport, PotentialStockRequest, PriceBar
 from backend.services.official_research import OfficialResearchFetcher
 from backend.services.potential_stock_cron import PotentialStockCronRunner
 from backend.services.potential_stock_service import PotentialStockService
@@ -1310,6 +1310,36 @@ class PotentialStockApiTest(unittest.TestCase):
         self.assertEqual(payload["report_session"], "post_market")
         self.assertNotIn("markdown", payload)
 
+    def test_cron_runner_execute_payload_stays_compact(self) -> None:
+        class FakeService:
+            async def run(self, request: PotentialStockRequest):
+                portfolio = PaperPortfolio(
+                    initial_capital=1_000_000,
+                    cash=900_000,
+                    invested_value=100_000,
+                    total_value=1_000_000,
+                    unrealized_pl=0,
+                    return_pct=0,
+                )
+                return PotentialStockReport(
+                    report_session="post_market",
+                    market_stance="中性",
+                    analyses=[],
+                    portfolio=portfolio,
+                    markdown="# 大型報告\n\n" + ("內容" * 5000),
+                    data_limitations=["資料限制 A", "資料限制 B", "資料限制 C", "資料限制 D"],
+                )
+
+        runner = PotentialStockCronRunner(FakeService(), get_settings)  # type: ignore[arg-type]
+
+        payload = asyncio.run(runner.execute(PotentialStockRequest(report_session="post_market", use_live_data=False), "post_market", send_email=False))
+
+        self.assertTrue(payload["compact"])
+        self.assertNotIn("markdown", payload)
+        self.assertGreater(payload["markdown_bytes"], 1000)
+        self.assertLess(len(str(payload)), 1000)
+        self.assertEqual(len(payload["data_limitations_preview"]), 3)
+
     def test_cron_runner_sequence_skip_payload_keeps_reason(self) -> None:
         runner = PotentialStockCronRunner(PotentialStockService(), get_settings)
 
@@ -1504,7 +1534,7 @@ class PotentialStockApiTest(unittest.TestCase):
                 os.environ["CRON_JOB_SECRET"] = old_secret
             get_settings.cache_clear()
 
-    def test_cron_endpoint_runs_reference_scan_with_token(self) -> None:
+    def test_cron_endpoint_defaults_to_background_compact_response(self) -> None:
         old_secret = os.environ.get("CRON_JOB_SECRET")
         os.environ["CRON_JOB_SECRET"] = "unit-test-secret"
         get_settings.cache_clear()
@@ -1521,14 +1551,13 @@ class PotentialStockApiTest(unittest.TestCase):
                     "token": "unit-test-secret",
                 },
             )
-            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.status_code, 202)
             payload = response.json()
             self.assertTrue(payload["ok"])
+            self.assertTrue(payload["accepted"])
+            self.assertTrue(payload["background"])
             self.assertEqual(payload["report_session"], "market_hours")
-            self.assertEqual(payload["email"]["sent"], False)
-            self.assertEqual(payload["email"]["reason"], "send_email=false")
-            self.assertEqual(payload["analysis_count"], 8)
-            self.assertIn("markdown", payload)
+            self.assertNotIn("markdown", payload)
         finally:
             if old_secret is None:
                 os.environ.pop("CRON_JOB_SECRET", None)

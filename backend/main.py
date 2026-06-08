@@ -28,7 +28,7 @@ from backend.services.storage import set_runtime_storage_backend, storage_status
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
-BACKEND_VERSION = "potential-20260608-postmarket-review-v1"
+BACKEND_VERSION = "potential-20260608-compact-cron-v1"
 
 app = FastAPI(title="AI Alpha Research Platform", version="0.2.0")
 app.add_middleware(
@@ -383,7 +383,7 @@ async def cron_potential_stocks(
     use_live_data: bool = Query(True),
     use_us_tech_leading: bool = Query(True),
     send_email: bool | None = Query(None),
-    background: bool = Query(False),
+    background: bool = Query(True),
     use_saved_settings: bool = Query(True),
 ) -> dict:
     _authorize_cron(token, x_cron_token)

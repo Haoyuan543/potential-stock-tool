@@ -13,7 +13,7 @@ from backend.services.potential_stock_service import PotentialStockService
 class CronPotentialStockRequest(PotentialStockRequest):
     token: str = ""
     send_email: bool | None = None
-    background: bool = False
+    background: bool = True
     use_saved_settings: bool = True
 
 
@@ -49,6 +49,8 @@ class PotentialStockCronRunner:
         report = await self.service.run(request)
         should_send_email = self.settings_provider().send_cron_email if send_email is None else send_email
         email_result = send_potential_stock_report_email(report_session, report) if should_send_email else {"sent": False, "reason": "send_email=false"}
+        markdown = getattr(report, "markdown", "") or ""
+        data_limitations = list(getattr(report, "data_limitations", []) or [])
         return {
             "ok": True,
             "report_session": report_session,
@@ -58,8 +60,11 @@ class PotentialStockCronRunner:
             "analysis_count": len(getattr(report, "analyses", []) or []),
             "trade_count": len(getattr(getattr(report, "portfolio", None), "trades", []) or []),
             "total_value": getattr(getattr(report, "portfolio", None), "total_value", None),
-            "data_limitations": getattr(report, "data_limitations", []),
-            "markdown": getattr(report, "markdown", ""),
+            "data_limitation_count": len(data_limitations),
+            "data_limitations_preview": data_limitations[:3],
+            "markdown_bytes": len(markdown.encode("utf-8")),
+            "report_saved": bool(request.persist),
+            "compact": True,
         }
 
     def schedule(self, request: PotentialStockRequest, report_session: str, send_email: bool | None = None) -> None:
