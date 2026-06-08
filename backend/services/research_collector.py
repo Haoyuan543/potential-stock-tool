@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from backend.models import MarketDataset
 from backend.services.fetchers import MarketDataFetcher
+from backend.services.source_registry import source_catalog
 from backend.services.storage import potential_stock_research_store
 
 
@@ -79,6 +80,7 @@ class ResearchCollectorService:
             "errors": errors[:10],
             "quality": [self._dataset_quality(item) for item in datasets],
             "us_tech_available": bool(us_tech_context.get("available")),
+            "source_catalog": source_catalog()[:8],
         }
 
     def latest_dataset(self, symbol: str, max_age_minutes: int = 240) -> MarketDataset | None:
@@ -147,6 +149,7 @@ class ResearchCollectorService:
                 for row in latest
             ],
             "us_tech_context_available": bool(self.latest_us_tech_context(max_age_minutes=10_080)),
+            "source_catalog": source_catalog(),
         }
 
     def _dataset_record(self, dataset: MarketDataset, generated_at: datetime) -> dict[str, Any]:
@@ -160,6 +163,7 @@ class ResearchCollectorService:
         }
 
     def _dataset_quality(self, dataset: MarketDataset) -> dict[str, Any]:
+        sources = self._dataset_sources(dataset)
         return {
             "symbol": self._normalize_symbols([dataset.ticker])[0],
             "price_rows": len(dataset.price),
@@ -173,7 +177,35 @@ class ResearchCollectorService:
             "missing_count": len(dataset.limitations),
             "limitations": dataset.limitations[:5],
             "latest_price_date": str(dataset.price[-1].date) if dataset.price else "",
+            "source_count": len(sources),
+            "sources": sources[:8],
         }
+
+    def _dataset_sources(self, dataset: MarketDataset) -> list[dict[str, Any]]:
+        rows = [*dataset.institutional, *dataset.fundamentals, *dataset.news, *dataset.events, *dataset.scfi]
+        sources: dict[str, dict[str, Any]] = {}
+        for point in rows:
+            value = point.value if isinstance(point.value, dict) else {}
+            source_url = str(value.get("source_url") or point.url or "")
+            key = f"{value.get('source_id') or point.source}|{source_url}"
+            if not point.missing and key not in sources:
+                sources[key] = {
+                    "source": point.source,
+                    "source_id": value.get("source_id") or "",
+                    "source_category": value.get("source_category") or "",
+                    "source_url": source_url,
+                    "fallback_rank": value.get("fallback_rank"),
+                    "access_difficulty": value.get("access_difficulty"),
+                    "fetched_at": value.get("fetched_at") or "",
+                    "latest_item": point.name,
+                }
+        return sorted(
+            sources.values(),
+            key=lambda item: (
+                int(item.get("fallback_rank") or 99),
+                str(item.get("source") or ""),
+            ),
+        )
 
     def _us_tech_context(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
         returns = [float(row["return_pct"]) for row in rows if self._float_or_none(row.get("return_pct")) is not None]

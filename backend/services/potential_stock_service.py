@@ -317,12 +317,17 @@ class PotentialStockService:
 
         scan_symbols = self._symbols_for_session(request, case_id=case_id)
         symbols = scan_symbols
-        if request.use_live_data:
-            datasets = await self._datasets_for_symbols(symbols, include_us_tech=request.use_us_tech_leading)
+        if request.use_live_data or request.use_saved_research:
+            datasets = await self._datasets_for_symbols(
+                symbols,
+                include_us_tech=request.use_us_tech_leading,
+                fetch_missing=request.use_live_data,
+                allow_low_quality_cached=not request.use_live_data,
+            )
         else:
             datasets = [MarketDataset(ticker=symbol, limitations=["Data Missing: live data disabled for this run."]) for symbol in symbols]
 
-        us_tech_context = self.research_collector.latest_us_tech_context(max_age_minutes=720) if request.use_live_data and request.use_us_tech_leading else None
+        us_tech_context = self.research_collector.latest_us_tech_context(max_age_minutes=720) if (request.use_live_data or request.use_saved_research) and request.use_us_tech_leading else None
         if us_tech_context is None:
             us_tech_context = await self._build_us_tech_context(request)
         analyses = [self._analyze_dataset(dataset, request, us_tech_context=us_tech_context) for dataset in datasets]
@@ -374,15 +379,21 @@ class PotentialStockService:
                 self.save_ledger(report, request, case_id=case_id)
         return report
 
-    async def _datasets_for_symbols(self, symbols: list[str], include_us_tech: bool = False) -> list[MarketDataset]:
+    async def _datasets_for_symbols(
+        self,
+        symbols: list[str],
+        include_us_tech: bool = False,
+        fetch_missing: bool = True,
+        allow_low_quality_cached: bool = False,
+    ) -> list[MarketDataset]:
         normalized = self._normalize_symbols(symbols, limit=120)
         missing: list[str] = []
         for symbol in normalized:
             cached = self.research_collector.latest_dataset(symbol, max_age_minutes=240)
-            if not cached or self._data_score(cached) < 70:
+            if fetch_missing and (not cached or self._data_score(cached) < 70):
                 missing.append(symbol)
         needs_us_tech = include_us_tech and self.research_collector.latest_us_tech_context(max_age_minutes=720) is None
-        if missing or needs_us_tech:
+        if fetch_missing and (missing or needs_us_tech):
             try:
                 await self.research_collector.collect(
                     ResearchCollectRequest(
@@ -396,8 +407,11 @@ class PotentialStockService:
         datasets: list[MarketDataset] = []
         for symbol in normalized:
             cached = self.research_collector.latest_dataset(symbol, max_age_minutes=240)
-            if cached and self._data_score(cached) >= 70:
+            if cached and (allow_low_quality_cached or self._data_score(cached) >= 70):
                 datasets.append(cached)
+                continue
+            if not fetch_missing:
+                datasets.append(MarketDataset(ticker=symbol, limitations=["Data Missing: no saved research dataset available for this symbol."]))
                 continue
             dataset = await self.fetcher.collect(self._finmind_symbol(symbol))
             dataset.ticker = symbol
@@ -1765,8 +1779,9 @@ class PotentialStockService:
 
     def _event_intelligence(self, dataset: MarketDataset) -> tuple[int, list[str], list[str], list[dict[str, Any]]]:
         rows = [point for point in dataset.events if not point.missing]
+        evidence = self._evidence_links(dataset)
         if not rows:
-            return 45, ["官方公告、公司 IR 與供應鏈情報尚未取得。"], ["缺少官方/IR/供應鏈情報，事件面信心需下修。"], []
+            return 45, ["官方公告、公司 IR 與供應鏈情報尚未取得。"], ["缺少官方/IR/供應鏈情報，事件面信心需下修。"], evidence[:5]
         tier_weight = {
             "official_mops": 6,
             "exchange_alert": 4,
@@ -1779,7 +1794,6 @@ class PotentialStockService:
         score = 50
         summary: list[str] = []
         risks: list[str] = []
-        evidence = self._evidence_links(dataset)
         for point in rows[:12]:
             value = point.value if isinstance(point.value, dict) else {}
             tier = str(value.get("tier") or "news")
@@ -1814,10 +1828,26 @@ class PotentialStockService:
             "company_ir": 4,
             "conference_material": 5,
         }
-        candidates: list[DataPoint] = [point for point in [*dataset.events, *dataset.news] if not point.missing and point.url]
+        primary_candidates = [point for point in [*dataset.events, *dataset.news] if not point.missing and point.url]
+        fallback_candidates = [
+            point
+            for point in [*dataset.institutional, *dataset.fundamentals, *dataset.scfi]
+            if not point.missing and point.url
+        ]
+        candidates: list[DataPoint] = [*primary_candidates, *fallback_candidates]
         def rank(point: DataPoint) -> tuple[int, int, int]:
             value = point.value if isinstance(point.value, dict) else {}
-            tier = str(value.get("tier") or ("news" if point in dataset.news else "supply_chain_search"))
+            if point in dataset.news:
+                default_tier = "news"
+            elif point in dataset.events:
+                default_tier = "supply_chain_search"
+            elif point in dataset.fundamentals:
+                default_tier = "fundamental"
+            elif point in dataset.institutional:
+                default_tier = "institutional"
+            else:
+                default_tier = "market_data"
+            tier = str(value.get("tier") or default_tier)
             credibility = int(self._float_or_none(value.get("credibility")) or 50)
             relevance = int(self._float_or_none(value.get("relevance_score")) or 0)
             text = f"{point.name} {value.get('summary') if isinstance(value, dict) else point.value}"
@@ -1834,7 +1864,17 @@ class PotentialStockService:
                 continue
             seen.add(url)
             value = point.value if isinstance(point.value, dict) else {}
-            tier = str(value.get("tier") or ("news" if point in dataset.news else "supply_chain_search"))
+            if point in dataset.news:
+                default_tier = "news"
+            elif point in dataset.events:
+                default_tier = "supply_chain_search"
+            elif point in dataset.fundamentals:
+                default_tier = "fundamental"
+            elif point in dataset.institutional:
+                default_tier = "institutional"
+            else:
+                default_tier = "market_data"
+            tier = str(value.get("tier") or default_tier)
             links.append(
                 {
                     "title": point.name,
@@ -1844,6 +1884,12 @@ class PotentialStockService:
                     "tier_label": self._tier_label(tier),
                     "credibility": int(self._float_or_none(value.get("credibility")) or (60 if tier == "news" else 70)),
                     "relevance": int(self._float_or_none(value.get("relevance_score")) or 0),
+                    "source_id": value.get("source_id") or "",
+                    "source_category": value.get("source_category") or "",
+                    "source_url": value.get("source_url") or url,
+                    "fallback_rank": value.get("fallback_rank"),
+                    "access_difficulty": value.get("access_difficulty"),
+                    "fetched_at": value.get("fetched_at") or "",
                 }
             )
             if len(links) >= 5:
@@ -1858,6 +1904,9 @@ class PotentialStockService:
             "conference_material": "法說/簡報",
             "supply_chain_search": "供應鏈搜尋",
             "news": "新聞",
+            "institutional": "法人籌碼資料",
+            "fundamental": "基本面資料",
+            "market_data": "市場資料",
         }
         return labels.get(tier, tier or "資料來源")
 

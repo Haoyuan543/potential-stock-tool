@@ -12,6 +12,7 @@ import httpx
 from backend.config import get_settings
 from backend.models import DataPoint
 from backend.search.web_search import web_search
+from backend.services.source_registry import annotate_payload
 
 
 class OfficialResearchFetcher:
@@ -473,7 +474,7 @@ class OfficialResearchFetcher:
         missing: bool = False,
         **extra: Any,
     ) -> DataPoint:
-        payload = value if isinstance(value, dict) else {"summary": value}
+        payload = annotate_payload(value, source=source, tier=tier, url=url)
         text = " ".join([str(name or ""), str(payload)])
         if isinstance(payload, dict):
             payload = {

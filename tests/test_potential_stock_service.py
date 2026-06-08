@@ -18,6 +18,7 @@ from backend.services.official_research import OfficialResearchFetcher
 from backend.services.potential_stock_cron import PotentialStockCronRunner
 from backend.services.potential_stock_service import PotentialStockService
 from backend.services.research_collector import ResearchCollectRequest, ResearchCollectorService
+from backend.services.source_registry import source_catalog
 
 
 TW_TEST_TZ = timezone(timedelta(hours=8))
@@ -35,6 +36,88 @@ class PotentialStockServiceTest(unittest.TestCase):
         self.assertIn("2330.TW", symbols)
         self.assertIn("2454.TW", symbols)
         self.assertNotIn("2603.TW", symbols)
+
+    def test_source_catalog_orders_public_api_before_screenshot_fallback(self) -> None:
+        sources = source_catalog()
+        ranks = [item["fallback_rank"] for item in sources]
+
+        self.assertEqual(ranks, sorted(ranks))
+        self.assertEqual(sources[0]["id"], "finmind")
+        self.assertTrue(any(item["id"] == "twse_openapi_material" for item in sources))
+        self.assertEqual(sources[-1]["id"], "screenshot_vision_fallback")
+        self.assertTrue(all(item.get("access_difficulty") for item in sources))
+        self.assertTrue(all("requires_key" in item for item in sources))
+
+    def test_official_research_points_include_source_provenance(self) -> None:
+        fetcher = OfficialResearchFetcher()
+        point = fetcher._point(
+            "MOPS 重大訊息",
+            "台積電先進製程公告",
+            "CoWoS 與先進製程產能說明",
+            "official_mops",
+            "https://mops.twse.com.tw/mops/web/t05st01",
+            98,
+            fetcher.profile_for("2330"),
+        )
+
+        self.assertIsInstance(point.value, dict)
+        self.assertEqual(point.value["source_id"], "mops_material_web")
+        self.assertIn("fetched_at", point.value)
+        self.assertIn("source_url", point.value)
+        self.assertLessEqual(point.value["access_difficulty"], 2)
+
+    def test_research_collector_quality_reports_source_provenance(self) -> None:
+        collector = ResearchCollectorService()
+        dataset = MarketDataset(
+            ticker="2330.TW",
+            price=[PriceBar(date=date(2026, 6, 5), open=100, high=110, low=95, close=108, volume=1000)],
+            institutional=[
+                DataPoint(
+                    source="FinMind",
+                    name="foreign",
+                    value={"source_id": "finmind", "source_url": "https://api.finmindtrade.com/docs", "fallback_rank": 1, "access_difficulty": 1, "fetched_at": "2026-06-08T08:05:00+08:00"},
+                    url="https://api.finmindtrade.com/docs",
+                )
+            ],
+            events=[
+                DataPoint(
+                    source="MOPS 重大訊息",
+                    name="official",
+                    value={"tier": "official_mops", "source_id": "mops_material_web", "source_url": "https://mops.twse.com.tw/mops/web/t05st01", "fallback_rank": 6, "access_difficulty": 2, "fetched_at": "2026-06-08T08:06:00+08:00"},
+                    url="https://mops.twse.com.tw/mops/web/t05st01",
+                )
+            ],
+        )
+
+        quality = collector._dataset_quality(dataset)
+
+        self.assertEqual(quality["source_count"], 2)
+        self.assertEqual(quality["sources"][0]["source_id"], "finmind")
+        self.assertEqual(quality["sources"][1]["source_id"], "mops_material_web")
+        self.assertIn("fetched_at", quality["sources"][0])
+
+    def test_saved_research_is_used_when_live_data_is_disabled(self) -> None:
+        request = PotentialStockRequest(symbols=["2330.TW"], use_live_data=False, use_saved_research=True, persist=False)
+        cached = MarketDataset(
+            ticker="2330.TW",
+            price=[PriceBar(date=date(2026, 6, 5), open=100, high=110, low=95, close=108, volume=1000)],
+            institutional=[
+                DataPoint(
+                    source="FinMind",
+                    name="foreign",
+                    value={"source_id": "finmind", "source_url": "https://api.finmindtrade.com/docs", "fallback_rank": 1, "access_difficulty": 1, "fetched_at": "2026-06-08T08:05:00+08:00"},
+                    url="https://api.finmindtrade.com/docs",
+                )
+            ],
+        )
+        self.service.research_collector.latest_dataset = lambda symbol, max_age_minutes=240: cached
+        self.service.research_collector.latest_us_tech_context = lambda max_age_minutes=720: None
+
+        report = asyncio.run(self.service.run(request))
+
+        self.assertEqual(report.analyses[0].symbol, "2330.TW")
+        self.assertTrue(report.analyses[0].evidence_links)
+        self.assertEqual(report.analyses[0].evidence_links[0]["source_id"], "finmind")
 
     def test_backend_universe_selection_without_symbols(self) -> None:
         request = PotentialStockRequest(market_universe="financial", use_live_data=False)
@@ -477,6 +560,26 @@ class PotentialStockServiceTest(unittest.TestCase):
 
         self.assertEqual(len(links), 5)
         self.assertEqual(links[0]["tier"], "official_mops")
+
+    def test_evidence_links_fallback_to_market_data_sources(self) -> None:
+        dataset = self._strong_dataset("2330")
+        dataset.events = []
+        dataset.news = []
+        dataset.institutional = [
+            DataPoint(
+                source="FinMind",
+                name="foreign",
+                value={"source_id": "finmind", "source_url": "https://api.finmindtrade.com/docs", "fallback_rank": 1, "access_difficulty": 1, "fetched_at": "2026-06-08T08:05:00+08:00"},
+                url="https://api.finmindtrade.com/docs",
+            )
+        ]
+
+        links = self.service._evidence_links(dataset)
+
+        self.assertEqual(len(links), 1)
+        self.assertEqual(links[0]["tier"], "institutional")
+        self.assertEqual(links[0]["source_id"], "finmind")
+        self.assertEqual(links[0]["fetched_at"], "2026-06-08T08:05:00+08:00")
 
     def test_analysis_explains_scores_and_market_shock_news_with_links(self) -> None:
         request = PotentialStockRequest(symbols=["2330.TW"], use_live_data=False, persist=False)

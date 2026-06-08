@@ -7,6 +7,7 @@ import httpx
 from backend.config import get_settings
 from backend.models import DataPoint, MarketDataset, PriceBar
 from backend.services.official_research import OfficialResearchFetcher
+from backend.services.source_registry import annotate_payload
 
 
 class MarketDataFetcher:
@@ -151,7 +152,7 @@ class MarketDataFetcher:
                 DataPoint(
                     source="FinMind",
                     name=str(row.get("name") or row.get("institutional_investors") or "institutional_flow"),
-                    value=row.get("buy", 0) if "buy" in row else row,
+                    value=annotate_payload(row, source="FinMind", tier="institutional", url="https://api.finmindtrade.com/docs"),
                     date=_safe_date(row.get("date")),
                     url="https://api.finmindtrade.com/docs",
                 )
@@ -170,7 +171,7 @@ class MarketDataFetcher:
                 DataPoint(
                     source="FinMind",
                     name="monthly_revenue",
-                    value=row,
+                    value=annotate_payload(row, source="FinMind", tier="fundamental", url="https://api.finmindtrade.com/docs"),
                     date=_safe_date(row.get("date")),
                     url="https://api.finmindtrade.com/docs",
                 )
@@ -189,7 +190,7 @@ class MarketDataFetcher:
             DataPoint(
                 source="Shanghai Shipping Exchange",
                 name="SCFI public page",
-                value="latest public SCFI page fetched; parse/upload detailed history for route-level backtests",
+                value=annotate_payload("latest public SCFI page fetched; parse/upload detailed history for route-level backtests", source="Shanghai Shipping Exchange", tier="shipping_index", url=url),
                 url=url,
                 missing=False,
             )
@@ -209,7 +210,7 @@ class MarketDataFetcher:
             DataPoint(
                 source="NewsAPI",
                 name=article.get("title") or "news",
-                value=article.get("description"),
+                value=annotate_payload({"summary": article.get("description"), "published_at": article.get("publishedAt"), "tier": "news", "credibility": 58}, source="NewsAPI", tier="news", url=article.get("url")),
                 url=article.get("url"),
                 date=_safe_date((article.get("publishedAt") or "")[:10]),
             )

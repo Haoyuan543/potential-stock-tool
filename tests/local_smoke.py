@@ -133,7 +133,7 @@ def main() -> None:
 
     health = client.get("/health")
     assert health.status_code == 200
-    assert health.json()["backend_version"] == "potential-20260608-rich-thesis-v1"
+    assert health.json()["backend_version"] == "potential-20260608-source-provenance-v3"
     assert health.json()["storage"]["backend"] in {"local", "supabase"}
 
     storage_status = client.get("/api/storage/status")
@@ -153,6 +153,7 @@ def main() -> None:
     assert "dashboard_basic_auth" in main_py
     assert "/api/storage/backend" in main_py
     assert "/api/research-collector/status" in main_py
+    assert "/api/research-collector/source-catalog" in main_py
     assert "/api/cron/research-collector" in main_py
     assert "PotentialStockCronRunner" in main_py
     cron_py = (ROOT / "backend" / "services" / "potential_stock_cron.py").read_text(encoding="utf-8")
@@ -243,6 +244,12 @@ def main() -> None:
     cases = client.get("/api/potential-stocks/cases")
     assert cases.status_code == 200
     assert "active_case_id" in cases.json()
+
+    source_catalog = client.get("/api/research-collector/source-catalog")
+    assert source_catalog.status_code == 200
+    source_payload = source_catalog.json()
+    assert source_payload["sources"][0]["id"] == "finmind"
+    assert source_payload["sources"][-1]["id"] == "screenshot_vision_fallback"
 
     performance = client.get("/api/potential-stocks/performance")
     assert performance.status_code == 200

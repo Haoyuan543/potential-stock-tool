@@ -23,12 +23,13 @@ from backend.services.fetchers import MarketDataFetcher
 from backend.services.potential_stock_cron import CronPotentialStockRequest, PotentialStockCronRunner
 from backend.services.potential_stock_service import PotentialStockService
 from backend.services.research_collector import ResearchCollectRequest, ResearchCollectorService
+from backend.services.source_registry import source_catalog
 from backend.services.storage import set_runtime_storage_backend, storage_status
 
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
-BACKEND_VERSION = "potential-20260608-rich-thesis-v1"
+BACKEND_VERSION = "potential-20260608-source-provenance-v3"
 
 app = FastAPI(title="AI Alpha Research Platform", version="0.2.0")
 app.add_middleware(
@@ -359,6 +360,11 @@ async def potential_stock_delete_case(case_id: str, request: Request, token: str
 @app.get("/api/research-collector/status")
 async def research_collector_status(limit: int = 50) -> dict:
     return research_collector.status(limit=limit)
+
+
+@app.get("/api/research-collector/source-catalog")
+async def research_collector_source_catalog() -> dict:
+    return {"ok": True, "sources": source_catalog()}
 
 
 @app.post("/api/research-collector/collect")

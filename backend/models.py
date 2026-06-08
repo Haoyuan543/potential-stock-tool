@@ -153,6 +153,7 @@ class PotentialStockRequest(BaseModel):
     investment_horizon: Literal["short_weeks", "mid_term_3m", "long_6m", "multi_year"] = "mid_term_3m"
     report_session: Literal["auto", "pre_market", "market_hours", "post_market"] = "auto"
     use_live_data: bool = True
+    use_saved_research: bool = True
     use_us_tech_leading: bool = True
     use_ai_analysis: bool = False
     persist: bool = True
