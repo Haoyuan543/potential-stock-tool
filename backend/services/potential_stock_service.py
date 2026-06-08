@@ -331,9 +331,17 @@ class PotentialStockService:
         else:
             datasets = [MarketDataset(ticker=symbol, limitations=["Data Missing: live data disabled for this run."]) for symbol in symbols]
 
+        bulk_dynamic_run = request.use_dynamic_universe and request.use_live_data and len(scan_symbols) > self.LIVE_RESEARCH_BATCH_LIMIT
         us_tech_context = self.research_collector.latest_us_tech_context(max_age_minutes=720) if (request.use_live_data or request.use_saved_research) and request.use_us_tech_leading else None
         if us_tech_context is None:
-            us_tech_context = await self._build_us_tech_context(request)
+            if bulk_dynamic_run:
+                us_tech_context = {
+                    "available": False,
+                    "rows": [],
+                    "limitation": "US Leading Data Deferred: bulk dynamic scan uses saved US context only; run research collector to refresh US market context.",
+                }
+            else:
+                us_tech_context = await self._build_us_tech_context(request)
         analyses = [self._analyze_dataset(dataset, request, us_tech_context=us_tech_context) for dataset in datasets]
         analyses.sort(key=lambda item: item.score, reverse=True)
         candidate_limit = self._candidate_limit(request)
@@ -398,7 +406,7 @@ class PotentialStockService:
                 missing.append(symbol)
         is_bulk_scan = len(normalized) > self.LIVE_RESEARCH_BATCH_LIMIT
         live_fetch_symbols = set() if is_bulk_scan else set(missing[: self.LIVE_RESEARCH_BATCH_LIMIT])
-        needs_us_tech = include_us_tech and self.research_collector.latest_us_tech_context(max_age_minutes=720) is None
+        needs_us_tech = (not is_bulk_scan) and include_us_tech and self.research_collector.latest_us_tech_context(max_age_minutes=720) is None
         if fetch_missing and (missing or needs_us_tech):
             try:
                 await self.research_collector.collect(

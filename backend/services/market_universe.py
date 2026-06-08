@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -103,14 +104,18 @@ class MarketUniverseService:
 
         rows: list[dict[str, Any]] = []
         status: list[dict[str, Any]] = []
-        async with httpx.AsyncClient(timeout=20) as client:
-            twse_rows, twse_status = await self._fetch_company_api(client, self.TWSE_COMPANY_API, "TWSE", ".TW")
-            rows.extend(twse_rows)
-            status.append(twse_status)
-
-            tpex_rows, tpex_status = await self._fetch_company_api(client, self.TPEX_COMPANY_API, "TPEx", ".TWO")
+        async with httpx.AsyncClient(timeout=8) as client:
+            twse_result, tpex_result = await asyncio.gather(
+                self._fetch_company_api(client, self.TWSE_COMPANY_API, "TWSE", ".TW"),
+                self._fetch_company_api(client, self.TPEX_COMPANY_API, "TPEx", ".TWO"),
+            )
+            twse_rows, twse_status = twse_result
+            tpex_rows, tpex_status = tpex_result
             if not tpex_rows:
                 tpex_rows, tpex_status = await self._fetch_company_api(client, self.TPEX_COMPANY_API_ALT, "TPEx", ".TWO")
+
+            rows.extend(twse_rows)
+            status.append(twse_status)
             rows.extend(tpex_rows)
             status.append(tpex_status)
 
