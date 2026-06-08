@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 import backend.services.potential_stock_service as potential_stock_module
 import backend.services.research_collector as research_collector_module
+import backend.main as backend_main_module
 from backend.config import get_settings
 from backend.main import app
 from backend.models import DataPoint, MarketDataset, PaperPortfolio, PaperTradeDecision, PotentialBacktestRequest, PotentialStockReport, PotentialStockRequest, PriceBar
@@ -1575,7 +1576,7 @@ class PotentialStockApiTest(unittest.TestCase):
                 params={
                     "session": "market_hours",
                     "persist": "true",
-                    "background": "true",
+                    "background": "false",
                     "token": "unit-test-secret",
                 },
             )
@@ -1611,18 +1612,23 @@ class PotentialStockApiTest(unittest.TestCase):
 
     def test_cron_endpoint_defaults_to_background_compact_response(self) -> None:
         old_secret = os.environ.get("CRON_JOB_SECRET")
+        original_schedule_saved = backend_main_module.potential_stock_cron.schedule_saved_settings
         os.environ["CRON_JOB_SECRET"] = "unit-test-secret"
         get_settings.cache_clear()
         try:
+            scheduled: list[dict[str, object]] = []
+
+            def fake_schedule_saved(report_session: str, persist: bool = True, send_email: bool | None = None) -> None:
+                scheduled.append({"report_session": report_session, "persist": persist, "send_email": send_email})
+
+            backend_main_module.potential_stock_cron.schedule_saved_settings = fake_schedule_saved
             client = TestClient(app)
             response = client.get(
                 "/api/cron/potential-stocks",
                 params={
-                    "session": "market_hours",
-                    "persist": "false",
-                    "use_live_data": "false",
-                    "use_saved_settings": "false",
-                    "send_email": "false",
+                    "session": "pre_market",
+                    "persist": "true",
+                    "use_saved_settings": "true",
                     "token": "unit-test-secret",
                 },
             )
@@ -1631,9 +1637,11 @@ class PotentialStockApiTest(unittest.TestCase):
             self.assertTrue(payload["ok"])
             self.assertTrue(payload["accepted"])
             self.assertTrue(payload["background"])
-            self.assertEqual(payload["report_session"], "market_hours")
+            self.assertEqual(payload["report_session"], "pre_market")
             self.assertNotIn("markdown", payload)
+            self.assertEqual(scheduled, [{"report_session": "pre_market", "persist": True, "send_email": None}])
         finally:
+            backend_main_module.potential_stock_cron.schedule_saved_settings = original_schedule_saved
             if old_secret is None:
                 os.environ.pop("CRON_JOB_SECRET", None)
             else:

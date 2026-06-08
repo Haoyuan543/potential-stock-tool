@@ -28,7 +28,7 @@ from backend.services.storage import set_runtime_storage_backend, storage_status
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
-BACKEND_VERSION = "potential-20260608-broad-candidates-v1"
+BACKEND_VERSION = "potential-20260608-detached-cron-v2"
 
 app = FastAPI(title="AI Alpha Research Platform", version="0.2.0")
 app.add_middleware(
@@ -392,6 +392,9 @@ async def cron_potential_stocks(
     if backgorund is not None:
         background = backgorund
     if use_saved_settings:
+        if background:
+            potential_stock_cron.schedule_saved_settings(session, persist=persist, send_email=send_email)
+            return _cron_accepted_response(session)
         request = potential_stock_service.request_from_saved_settings(session, persist=persist)
     else:
         request = PotentialStockRequest(
@@ -409,29 +412,32 @@ async def cron_potential_stocks(
             use_us_tech_leading=use_us_tech_leading,
             persist=persist,
         )
+        if background:
+            potential_stock_cron.schedule_with_sequence(request, session, send_email)
+            return _cron_accepted_response(session)
     sequence = potential_stock_service.sequence_check(session, persist=persist)
     if not sequence["allowed"]:
         return potential_stock_cron.sequence_skip_payload(sequence)
-    if background:
-        potential_stock_cron.schedule(request, session, send_email)
-        return _cron_accepted_response(session)
     return await potential_stock_cron.execute(request, session, send_email)
 
 
 @app.post("/api/cron/potential-stocks")
 async def cron_potential_stocks_post(request: CronPotentialStockRequest, x_cron_token: str = Header(default="")) -> dict:
     _authorize_cron(request.token, x_cron_token)
+    if request.background and request.use_saved_settings:
+        potential_stock_cron.schedule_saved_settings(request.report_session, persist=request.persist, send_email=request.send_email)
+        return _cron_accepted_response(request.report_session)
     safe_request = (
         potential_stock_service.request_from_saved_settings(request.report_session, persist=request.persist)
         if request.use_saved_settings
         else PotentialStockRequest.model_validate(request.model_dump(mode="json"))
     )
+    if request.background:
+        potential_stock_cron.schedule_with_sequence(safe_request, safe_request.report_session, request.send_email)
+        return _cron_accepted_response(safe_request.report_session)
     sequence = potential_stock_service.sequence_check(safe_request.report_session, persist=safe_request.persist)
     if not sequence["allowed"]:
         return potential_stock_cron.sequence_skip_payload(sequence)
-    if request.background:
-        potential_stock_cron.schedule(safe_request, safe_request.report_session, request.send_email)
-        return _cron_accepted_response(safe_request.report_session)
     return await potential_stock_cron.execute(safe_request, safe_request.report_session, request.send_email)
 
 

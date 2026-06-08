@@ -72,8 +72,39 @@ class PotentialStockCronRunner:
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 
+    def schedule_with_sequence(self, request: PotentialStockRequest, report_session: str, send_email: bool | None = None) -> None:
+        task = asyncio.create_task(self._run_background_with_sequence(request, report_session, send_email))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    def schedule_saved_settings(self, report_session: str, persist: bool = True, send_email: bool | None = None) -> None:
+        task = asyncio.create_task(self._run_saved_settings_background(report_session, persist, send_email))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
     async def _run_background(self, request: PotentialStockRequest, report_session: str, send_email: bool | None = None) -> None:
         try:
+            await self.execute(request, report_session, send_email)
+        except Exception as exc:  # noqa: BLE001
+            print(f"Background potential-stock cron failed for {report_session}: {exc}")
+
+    async def _run_background_with_sequence(self, request: PotentialStockRequest, report_session: str, send_email: bool | None = None) -> None:
+        try:
+            sequence = self.service.sequence_check(report_session, persist=request.persist)
+            if not sequence["allowed"]:
+                print(f"Background potential-stock cron skipped for {report_session}: {sequence.get('reason')}")
+                return
+            await self.execute(request, report_session, send_email)
+        except Exception as exc:  # noqa: BLE001
+            print(f"Background potential-stock cron failed for {report_session}: {exc}")
+
+    async def _run_saved_settings_background(self, report_session: str, persist: bool = True, send_email: bool | None = None) -> None:
+        try:
+            request = self.service.request_from_saved_settings(report_session, persist=persist)
+            sequence = self.service.sequence_check(report_session, persist=persist)
+            if not sequence["allowed"]:
+                print(f"Background potential-stock cron skipped for {report_session}: {sequence.get('reason')}")
+                return
             await self.execute(request, report_session, send_email)
         except Exception as exc:  # noqa: BLE001
             print(f"Background potential-stock cron failed for {report_session}: {exc}")
