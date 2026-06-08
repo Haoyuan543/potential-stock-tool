@@ -29,7 +29,7 @@ from backend.services.storage import set_runtime_storage_backend, storage_status
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
-BACKEND_VERSION = "potential-20260608-source-provenance-v3"
+BACKEND_VERSION = "potential-20260608-dynamic-universe-v1"
 
 app = FastAPI(title="AI Alpha Research Platform", version="0.2.0")
 app.add_middleware(
@@ -365,6 +365,11 @@ async def research_collector_status(limit: int = 50) -> dict:
 @app.get("/api/research-collector/source-catalog")
 async def research_collector_source_catalog() -> dict:
     return {"ok": True, "sources": source_catalog()}
+
+
+@app.get("/api/market-universe/status")
+async def market_universe_status() -> dict:
+    return await potential_stock_service.market_universe.status()
 
 
 @app.post("/api/research-collector/collect")

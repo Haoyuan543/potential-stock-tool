@@ -133,7 +133,7 @@ def main() -> None:
 
     health = client.get("/health")
     assert health.status_code == 200
-    assert health.json()["backend_version"] == "potential-20260608-source-provenance-v3"
+    assert health.json()["backend_version"] == "potential-20260608-dynamic-universe-v1"
     assert health.json()["storage"]["backend"] in {"local", "supabase"}
 
     storage_status = client.get("/api/storage/status")
@@ -154,6 +154,7 @@ def main() -> None:
     assert "/api/storage/backend" in main_py
     assert "/api/research-collector/status" in main_py
     assert "/api/research-collector/source-catalog" in main_py
+    assert "/api/market-universe/status" in main_py
     assert "/api/cron/research-collector" in main_py
     assert "PotentialStockCronRunner" in main_py
     cron_py = (ROOT / "backend" / "services" / "potential_stock_cron.py").read_text(encoding="utf-8")
@@ -200,6 +201,7 @@ def main() -> None:
             "max_positions": 5,
             "report_session": "market_hours",
             "use_live_data": False,
+            "use_dynamic_universe": False,
             "persist": False,
         },
     )
@@ -250,6 +252,10 @@ def main() -> None:
     source_payload = source_catalog.json()
     assert source_payload["sources"][0]["id"] == "finmind"
     assert source_payload["sources"][-1]["id"] == "screenshot_vision_fallback"
+
+    market_universe_py = (ROOT / "backend" / "services" / "market_universe.py").read_text(encoding="utf-8")
+    for marker in ["TWSE_COMPANY_API", "TPEX_COMPANY_API", "CATEGORY_RULES", "resolve_symbols"]:
+        assert marker in market_universe_py
 
     performance = client.get("/api/potential-stocks/performance")
     assert performance.status_code == 200

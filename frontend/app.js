@@ -66,6 +66,7 @@ const DEFAULT_SETTINGS = {
   slippage_bps: 5,
   benchmark_symbol: "0050.TW",
   use_live_data: true,
+  use_dynamic_universe: true,
   use_us_tech_leading: true,
   use_ai_analysis: false
 };
@@ -576,6 +577,7 @@ function collectSettings() {
     slippage_bps: numberValue("#slippageInput", DEFAULT_SETTINGS.slippage_bps),
     benchmark_symbol: document.querySelector("#benchmarkInput").value.trim() || DEFAULT_SETTINGS.benchmark_symbol,
     use_live_data: document.querySelector("#liveDataInput").checked,
+    use_dynamic_universe: true,
     use_us_tech_leading: document.querySelector("#usTechLeadingInput")?.checked !== false,
     use_ai_analysis: document.querySelector("#aiAnalysisInput").checked
   };
@@ -674,6 +676,7 @@ function readInputs(reportSession, options = {}) {
     strategy_version: document.querySelector("#strategyVersionInput").value.trim() || "potential-v1",
     report_session: reportSession,
     use_live_data: document.querySelector("#liveDataInput").checked,
+    use_dynamic_universe: true,
     use_us_tech_leading: document.querySelector("#usTechLeadingInput")?.checked !== false,
     use_ai_analysis: document.querySelector("#aiAnalysisInput").checked,
     persist: options.persist !== undefined ? Boolean(options.persist) : true

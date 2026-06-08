@@ -15,6 +15,7 @@ from backend.config import get_settings
 from backend.main import app
 from backend.models import DataPoint, MarketDataset, PaperPortfolio, PaperTradeDecision, PotentialBacktestRequest, PotentialStockReport, PotentialStockRequest, PriceBar
 from backend.services.official_research import OfficialResearchFetcher
+from backend.services.market_universe import MarketUniverseService
 from backend.services.potential_stock_cron import PotentialStockCronRunner
 from backend.services.potential_stock_service import PotentialStockService
 from backend.services.research_collector import ResearchCollectRequest, ResearchCollectorService
@@ -149,6 +150,64 @@ class PotentialStockServiceTest(unittest.TestCase):
         self.assertIn("2330.TW", symbols)
         self.assertEqual(len(symbols), len(set(symbols)))
 
+    def test_dynamic_market_universe_resolves_from_official_company_rows(self) -> None:
+        universe = MarketUniverseService({"semiconductor": ["2330.TW"], "electronics": ["2382.TW"]})
+
+        async def fake_company_rows(force_refresh: bool = False):
+            return [
+                {
+                    "symbol": "9999.TW",
+                    "name": "測試半導體",
+                    "full_name": "測試半導體股份有限公司",
+                    "english_name": "Test Semiconductor",
+                    "industry_code": "24",
+                    "raw": {"業務": "晶圓 ASIC HBM CoWoS"},
+                },
+                {
+                    "symbol": "8888.TWO",
+                    "name": "測試AI伺服器",
+                    "full_name": "測試AI伺服器股份有限公司",
+                    "english_name": "AI Server",
+                    "industry_code": "25",
+                    "raw": {"業務": "GB200 AI Server ODM"},
+                },
+                {
+                    "symbol": "7777.TW",
+                    "name": "測試食品",
+                    "full_name": "測試食品股份有限公司",
+                    "english_name": "Food",
+                    "industry_code": "02",
+                    "raw": {"業務": "食品"},
+                },
+            ]
+
+        universe._company_rows = fake_company_rows
+        resolved = asyncio.run(universe.resolve_symbols(["semiconductor", "electronics"], explicit_symbols=[], limit=10))
+
+        self.assertIn("9999.TW", resolved["symbols"])
+        self.assertIn("8888.TWO", resolved["symbols"])
+        self.assertNotIn("7777.TW", resolved["symbols"])
+        self.assertEqual(resolved["dynamic_count"], 2)
+        self.assertIn("2330.TW", resolved["symbols"])
+
+    def test_dynamic_universe_is_used_before_curated_fallback_for_premarket(self) -> None:
+        request = PotentialStockRequest(
+            market_universes=["semiconductor", "electronics"],
+            report_session="pre_market",
+            use_live_data=False,
+            use_saved_research=False,
+            persist=False,
+        )
+
+        class FakeUniverse:
+            async def resolve_symbols(self, universes, explicit_symbols=None, limit=180):
+                return {"symbols": ["9999.TW", "8888.TWO", "2330.TW"], "dynamic_count": 2}
+
+        self.service.market_universe = FakeUniverse()
+        symbols = asyncio.run(self.service._symbols_for_request_async(request))
+
+        self.assertEqual(symbols[:3], ["9999.TW", "8888.TWO", "2330.TW"])
+
     def test_premarket_broad_scan_keeps_top_ten_candidates(self) -> None:
         request = PotentialStockRequest(
             symbols=["2330.TW", "2454.TW"],
@@ -156,6 +215,7 @@ class PotentialStockServiceTest(unittest.TestCase):
             report_session="pre_market",
             candidate_limit=10,
             use_live_data=False,
+            use_dynamic_universe=False,
             persist=False,
         )
 
@@ -202,7 +262,7 @@ class PotentialStockServiceTest(unittest.TestCase):
                 persist=True,
             )
 
-            symbols = self.service._symbols_for_session(request, case_id="default")
+            symbols = asyncio.run(self.service._symbols_for_session(request, case_id="default"))
 
             self.assertEqual(symbols, selected)
         finally:
@@ -1542,7 +1602,7 @@ class PotentialStockApiTest(unittest.TestCase):
         client = TestClient(app)
         response = client.post(
             "/api/potential-stocks",
-            json={"market_universe": "electronics", "report_session": "pre_market", "initial_capital": 1_000_000, "use_live_data": False, "persist": False},
+            json={"market_universe": "electronics", "report_session": "pre_market", "initial_capital": 1_000_000, "use_live_data": False, "use_dynamic_universe": False, "persist": False},
         )
 
         self.assertEqual(response.status_code, 200)

@@ -154,6 +154,7 @@ class PotentialStockRequest(BaseModel):
     report_session: Literal["auto", "pre_market", "market_hours", "post_market"] = "auto"
     use_live_data: bool = True
     use_saved_research: bool = True
+    use_dynamic_universe: bool = True
     use_us_tech_leading: bool = True
     use_ai_analysis: bool = False
     persist: bool = True

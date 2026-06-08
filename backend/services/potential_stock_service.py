@@ -18,6 +18,7 @@ from backend.models import (
     PriceBar,
 )
 from backend.services.fetchers import MarketDataFetcher
+from backend.services.market_universe import MarketUniverseService
 from backend.services.openai_service import OpenAIResearchService
 from backend.services.research_collector import ResearchCollectRequest, ResearchCollectorService
 from backend.services.storage import (
@@ -156,6 +157,7 @@ class PotentialStockService:
         self.ai = OpenAIResearchService()
         self.research_collector = ResearchCollectorService()
         self.research_collector.fetcher = self.fetcher
+        self.market_universe = MarketUniverseService(self.UNIVERSES)
 
     def active_case_id(self) -> str:
         rows = potential_stock_case_store.all()
@@ -315,7 +317,7 @@ class PotentialStockService:
         if existing:
             return self._report_from_record(existing)
 
-        scan_symbols = self._symbols_for_session(request, case_id=case_id)
+        scan_symbols = await self._symbols_for_session(request, case_id=case_id)
         symbols = scan_symbols
         if request.use_live_data or request.use_saved_research:
             datasets = await self._datasets_for_symbols(
@@ -346,7 +348,7 @@ class PotentialStockService:
         market_stance = self._market_stance(analyses)
         limitations = self._friendly_data_messages(sorted({item for analysis in analyses for item in analysis.data_limitations}))
         selected_candidate_symbols = [item.symbol for item in analyses[:candidate_limit]]
-        markdown = self._markdown(request, market_stance, analyses, portfolio, limitations, case_id=case_id)
+        markdown = self._markdown(request, market_stance, analyses, portfolio, limitations, case_id=case_id, scan_symbols=scan_symbols)
         ai_summary = ""
         ai_mode = "disabled"
         ai_error = ""
@@ -1348,11 +1350,30 @@ class PotentialStockService:
 ## 修正建議
 {fixes}
 """
-    def _symbols_for_session(self, request: PotentialStockRequest, case_id: str | None = None) -> list[str]:
+    async def _symbols_for_session(self, request: PotentialStockRequest, case_id: str | None = None) -> list[str]:
         if request.persist and request.report_session in {"market_hours", "post_market"}:
             tracked = self._tracked_candidate_symbols(case_id=case_id)
             if tracked:
                 return tracked
+        return await self._symbols_for_request_async(request)
+
+    async def _symbols_for_request_async(self, request: PotentialStockRequest) -> list[str]:
+        if not request.use_dynamic_universe:
+            return self._symbols_for_request(request)
+        universes = request.market_universes or ([] if request.symbols else [request.market_universe])
+        if not universes or universes == ["custom"]:
+            return self._symbols_for_request(request)
+        try:
+            resolved = await self.market_universe.resolve_symbols(
+                universes=universes,
+                explicit_symbols=request.symbols,
+                limit=180,
+            )
+            symbols = resolved.get("symbols") or []
+            if symbols:
+                return self._normalize_symbols(list(symbols), limit=180)
+        except Exception:
+            pass
         return self._symbols_for_request(request)
 
     def _tracked_candidate_symbols(self, case_id: str | None = None) -> list[str]:
@@ -2417,6 +2438,7 @@ class PotentialStockService:
             "initial_capital": request.initial_capital,
             "risk_reward_profile": request.risk_reward_profile,
             "investment_horizon": request.investment_horizon,
+            "use_dynamic_universe": request.use_dynamic_universe,
             "buy_score": request.buy_score,
             "watch_score": request.watch_score,
             "sell_score": request.sell_score,
@@ -2457,6 +2479,8 @@ class PotentialStockService:
             "risk_reward_profile": request.risk_reward_profile,
             "investment_horizon": request.investment_horizon,
             "use_live_data": request.use_live_data,
+            "use_saved_research": request.use_saved_research,
+            "use_dynamic_universe": request.use_dynamic_universe,
             "use_us_tech_leading": request.use_us_tech_leading,
             "use_ai_analysis": request.use_ai_analysis,
         }
@@ -2570,7 +2594,16 @@ class PotentialStockService:
             return "中性偏多"
         return "保守觀望"
 
-    def _markdown(self, request: PotentialStockRequest, market_stance: str, analyses: list[PotentialStockAnalysis], portfolio: PaperPortfolio, limitations: list[str], case_id: str | None = None) -> str:
+    def _markdown(
+        self,
+        request: PotentialStockRequest,
+        market_stance: str,
+        analyses: list[PotentialStockAnalysis],
+        portfolio: PaperPortfolio,
+        limitations: list[str],
+        case_id: str | None = None,
+        scan_symbols: list[str] | None = None,
+    ) -> str:
         session_title = {"pre_market": "盤前選股計畫", "market_hours": "盤中模擬交易", "post_market": "盤後結算"}[request.report_session]
         ranking = "\n".join(f"- {i + 1}. {a.symbol} {a.company_name}: {a.score}/100, {self._action_label(a.action)}, {self._risk_label(a.risk_level)}" for i, a in enumerate(analyses)) or "- 尚無候選"
         trades = "\n".join(f"- {t.symbol} {t.company_name} {self._action_label(t.action)} {t.shares} 股 @ {t.price or 'N/A'}：{t.reason}" for t in portfolio.trades) or "- 尚無操作"
@@ -2609,7 +2642,7 @@ class PotentialStockService:
 {per_stock}
 
 ## 策略設定
-- 掃描範圍：{len(self._symbols_for_request(request))} 檔
+- 掃描範圍：{len(scan_symbols or self._symbols_for_request(request))} 檔
 - 候選輸出：前 {self._candidate_limit(request)} 檔
 - 本次候選：{", ".join([f"{item.symbol} {item.company_name}" for item in analyses[: self._candidate_limit(request)]]) or "--"}
 - 單股上限：{request.max_position_pct * 100:.1f}%
