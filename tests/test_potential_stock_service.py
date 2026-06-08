@@ -208,6 +208,71 @@ class PotentialStockServiceTest(unittest.TestCase):
 
         self.assertEqual(symbols[:3], ["9999.TW", "8888.TWO", "2330.TW"])
 
+    def test_dynamic_live_scan_uses_cloud_safe_limit(self) -> None:
+        request = PotentialStockRequest(
+            market_universes=["semiconductor", "electronics"],
+            report_session="pre_market",
+            use_live_data=True,
+            persist=False,
+        )
+
+        class FakeUniverse:
+            def __init__(self) -> None:
+                self.limit = 0
+
+            async def resolve_symbols(self, universes, explicit_symbols=None, limit=180):
+                self.limit = limit
+                return {"symbols": [f"{index:04d}.TW" for index in range(1, 100)], "dynamic_count": 99}
+
+        fake = FakeUniverse()
+        self.service.market_universe = fake
+        symbols = asyncio.run(self.service._symbols_for_request_async(request))
+
+        self.assertEqual(fake.limit, self.service.CLOUD_SAFE_DYNAMIC_SCAN_LIMIT)
+        self.assertEqual(len(symbols), self.service.CLOUD_SAFE_DYNAMIC_SCAN_LIMIT)
+
+    def test_bulk_live_dataset_fetch_is_deferred_for_cloud_stability(self) -> None:
+        symbols = [f"{index:04d}.TW" for index in range(1, 41)]
+
+        class FakeResearchCollector:
+            def __init__(self) -> None:
+                self.collected: list[str] = []
+                self.available: set[str] = set()
+
+            def latest_dataset(self, symbol, max_age_minutes=240):
+                if symbol not in self.available:
+                    return None
+                return MarketDataset(
+                    ticker=symbol,
+                    price=[PriceBar(date=date.today(), open=10, high=11, low=9, close=10, volume=1000)],
+                    institutional=[DataPoint(source="test", name="flow")],
+                    fundamentals=[DataPoint(source="test", name="revenue")],
+                    news=[DataPoint(source="test", name="news")],
+                    events=[DataPoint(source="test", name="event")],
+                )
+
+            def latest_us_tech_context(self, max_age_minutes=720):
+                return {"available": True}
+
+            async def collect(self, request):
+                self.collected = list(request.symbols)
+                self.available.update(self.collected)
+                return {"ok": True}
+
+        class FailIfDirectFetcher:
+            async def collect(self, ticker):
+                raise AssertionError("bulk live scan should not directly fetch every deferred symbol")
+
+        fake_collector = FakeResearchCollector()
+        self.service.research_collector = fake_collector
+        self.service.fetcher = FailIfDirectFetcher()
+
+        datasets = asyncio.run(self.service._datasets_for_symbols(symbols, fetch_missing=True))
+
+        self.assertEqual(len(fake_collector.collected), 0)
+        self.assertEqual(len(datasets), 40)
+        self.assertTrue(any("Data Deferred" in item for item in datasets[-1].limitations))
+
     def test_premarket_broad_scan_keeps_top_ten_candidates(self) -> None:
         request = PotentialStockRequest(
             symbols=["2330.TW", "2454.TW"],

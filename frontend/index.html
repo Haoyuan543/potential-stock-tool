@@ -139,8 +139,9 @@
                 </select>
               </label>
               <label class="symbols-field">
-                股票池
-                <textarea id="symbolsInput" spellcheck="false">2330.TW, 2454.TW, 2303.TW, 2379.TW, 3034.TW, 3711.TW, 3443.TW, 3661.TW</textarea>
+                自訂股票池
+                <textarea id="symbolsInput" spellcheck="false" placeholder="只有勾選「自訂股票池」時才會使用；一般選股會自動從 TWSE / TPEx 動態市場清單產生候選。"></textarea>
+                <small id="symbolsHint" class="field-hint">目前使用動態市場 universe，這裡不會限制選股範圍。</small>
               </label>
               <label>最多持股 <input id="maxPositionsInput" type="number" min="1" max="30" step="1" value="5"></label>
               <label>候選檔數 <input id="candidateLimitInput" type="number" min="1" max="30" step="1" value="10"></label>

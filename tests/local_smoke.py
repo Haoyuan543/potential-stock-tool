@@ -40,7 +40,6 @@ def main() -> None:
         "switchStorageButton",
         "storageStatus",
         "納入前一晚美股科技 / 半導體領先因子",
-        "potential-20260608-rich-thesis-v1",
     ]:
         assert marker in home.text
 
@@ -59,11 +58,13 @@ def main() -> None:
         "建立全新支線",
         "儲存設定",
         "回到預設值",
+        "自訂股票池",
+        "動態市場清單",
     ]:
         assert marker in home.text
     assert home.text.index('id="dailyOutput"') < home.text.index('id="rankingOutput"')
     for marker in [
-        'APP_VERSION = "potential-20260608-rich-thesis-v1"',
+        'APP_VERSION = "potential-20260608-dynamic-universe-stable-v1"',
         "decisionReviewTable",
         "decisionChangeLabel",
         "readApiError",
@@ -133,7 +134,7 @@ def main() -> None:
 
     health = client.get("/health")
     assert health.status_code == 200
-    assert health.json()["backend_version"] == "potential-20260608-dynamic-universe-v1"
+    assert health.json()["backend_version"] == "potential-20260608-dynamic-universe-stable-v1"
     assert health.json()["storage"]["backend"] in {"local", "supabase"}
 
     storage_status = client.get("/api/storage/status")

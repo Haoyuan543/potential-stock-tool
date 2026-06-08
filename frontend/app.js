@@ -25,6 +25,7 @@ const investedValue = document.querySelector("#investedValue");
 const universeInput = document.querySelector("#universeInput");
 const universeOptions = Array.from(document.querySelectorAll(".universe-option"));
 const symbolsInput = document.querySelector("#symbolsInput");
+const symbolsHint = document.querySelector("#symbolsHint");
 const capitalInput = document.querySelector("#capitalInput");
 const capitalLockHint = document.querySelector("#capitalLockHint");
 const actionStatus = document.querySelector("#actionStatus");
@@ -34,7 +35,7 @@ const resetSettingsButton = document.querySelector("#resetSettingsButton");
 const storageBackendInput = document.querySelector("#storageBackendInput");
 const switchStorageButton = document.querySelector("#switchStorageButton");
 const storageStatus = document.querySelector("#storageStatus");
-const APP_VERSION = "potential-20260608-rich-thesis-v1";
+const APP_VERSION = "potential-20260608-dynamic-universe-stable-v1";
 const SETTINGS_KEY = "potentialStockToolSettings";
 
 const universeSymbols = {
@@ -45,7 +46,7 @@ const universeSymbols = {
 };
 
 const DEFAULT_SETTINGS = {
-  symbols: "2330.TW, 2454.TW, 2303.TW, 2379.TW, 3034.TW, 3711.TW, 3443.TW, 3661.TW",
+  symbols: "",
   market_universes: ["semiconductor", "electronics"],
   initial_capital: 3000000,
   max_positions: 5,
@@ -84,6 +85,7 @@ symbolsInput.addEventListener("input", () => {
   const custom = universeOptions.find((option) => option.value === "custom");
   if (custom) custom.checked = true;
   updateUniverseSummary();
+  updateSymbolsFieldState();
 });
 
 scanButton.addEventListener("click", () => runPotentialStocks("market_hours", { persist: false, referenceOnly: true }));
@@ -442,7 +444,7 @@ function applySavedSettings() {
 
 async function saveSettingsToCloudV2() {
   try {
-    syncSymbolsFromUniverseSelection();
+    updateSymbolsFieldState();
     await persistCurrentSettings();
     showNotice("設定已儲存；雲端排程會讀取這份設定。", "ok");
     showActionStatus("設定已儲存到目前資料來源。", "ok");
@@ -459,7 +461,7 @@ async function resetSettingsToDefaultV2() {
     // localStorage may be unavailable in private or restricted browser contexts.
   }
   applySettings(DEFAULT_SETTINGS, { includeCapital: !capitalInput.disabled });
-  syncSymbolsFromUniverseSelection();
+  updateSymbolsFieldState();
   try {
     await persistCurrentSettings();
     showNotice(capitalInput.disabled ? "已回到預設設定；資金欄位因目前案件已鎖定，需建立新支線後才能調整。" : "已回到預設設定並儲存。", "ok");
@@ -555,9 +557,11 @@ function resetSettingsToDefault() {
 }
 
 function collectSettings() {
+  const selectedUniverses = selectedUniverseValues();
+  const useCustomSymbols = selectedUniverses.includes("custom");
   return {
-    symbols: symbolsInput.value,
-    market_universes: selectedUniverseValues(),
+    symbols: useCustomSymbols ? symbolsInput.value : "",
+    market_universes: selectedUniverses,
     initial_capital: numberValue("#capitalInput", DEFAULT_SETTINGS.initial_capital),
     max_positions: numberValue("#maxPositionsInput", DEFAULT_SETTINGS.max_positions),
     candidate_limit: numberValue("#candidateLimitInput", DEFAULT_SETTINGS.candidate_limit),
@@ -613,18 +617,19 @@ function applySettings(settings, options = {}) {
   universeInput.value = universes[0] || "semiconductor";
   updateUniverseSummary();
   if (universes.includes("custom")) {
-    const explicitSymbols = settings.symbols || DEFAULT_SETTINGS.symbols;
+    const explicitSymbols = settings.symbols || "";
     symbolsInput.value = Array.isArray(explicitSymbols) ? explicitSymbols.join(", ") : String(explicitSymbols);
   } else {
-    syncSymbolsFromUniverseSelection();
+    symbolsInput.value = "";
   }
+  updateSymbolsFieldState();
 }
 
 function apiSettingsToUi(settings) {
   const merged = { ...DEFAULT_SETTINGS, ...(settings || {}) };
   return {
     ...merged,
-    symbols: Array.isArray(merged.symbols) ? merged.symbols.join(", ") : String(merged.symbols || DEFAULT_SETTINGS.symbols),
+    symbols: Array.isArray(merged.symbols) ? merged.symbols.join(", ") : String(merged.symbols || ""),
     max_position_pct: percentFromApi(merged.max_position_pct, DEFAULT_SETTINGS.max_position_pct),
     stop_loss_pct: percentFromApi(merged.stop_loss_pct, DEFAULT_SETTINGS.stop_loss_pct),
     take_profit_pct: percentFromApi(merged.take_profit_pct, DEFAULT_SETTINGS.take_profit_pct),
@@ -650,8 +655,9 @@ function setChecked(selector, value) {
 }
 
 function readInputs(reportSession, options = {}) {
-  const symbols = symbolsInput.value.split(/[,\n\s]+/).map((item) => item.trim()).filter(Boolean);
   const selectedUniverses = selectedUniverseValues();
+  const useCustomSymbols = selectedUniverses.includes("custom");
+  const symbols = useCustomSymbols ? symbolsInput.value.split(/[,\n\s]+/).map((item) => item.trim()).filter(Boolean) : [];
   return {
     symbols,
     market_universe: selectedUniverses[0] || "semiconductor",
@@ -689,15 +695,7 @@ function selectedUniverseValues() {
 }
 
 function syncSymbolsFromUniverseSelection() {
-  const selected = selectedUniverseValues();
-  if (selected.includes("custom")) return;
-  const merged = [];
-  for (const universe of selected) {
-    for (const symbol of universeSymbols[universe] || []) {
-      if (!merged.includes(symbol)) merged.push(symbol);
-    }
-  }
-  if (merged.length) symbolsInput.value = merged.join(", ");
+  updateSymbolsFieldState();
 }
 
 function syncUniverseSelection(event) {
@@ -710,7 +708,7 @@ function syncUniverseSelection(event) {
   const selected = selectedUniverseValues();
   universeInput.value = selected[0] || "semiconductor";
   updateUniverseSummary();
-  syncSymbolsFromUniverseSelection();
+  updateSymbolsFieldState();
 }
 
 function updateUniverseSummary() {
@@ -723,6 +721,20 @@ function updateUniverseSummary() {
   };
   const selected = selectedUniverseValues().map((value) => labels[value] || value);
   universeSummary.textContent = selected.length <= 2 ? selected.join("、") : `${selected.slice(0, 2).join("、")} +${selected.length - 2}`;
+}
+
+function updateSymbolsFieldState() {
+  const useCustomSymbols = selectedUniverseValues().includes("custom");
+  symbolsInput.disabled = !useCustomSymbols;
+  symbolsInput.classList.toggle("muted-input", !useCustomSymbols);
+  if (!useCustomSymbols) {
+    symbolsInput.value = "";
+    symbolsInput.placeholder = "目前使用 TWSE / TPEx 動態市場 universe，不會被固定股票池限制。";
+    if (symbolsHint) symbolsHint.textContent = "目前使用動態市場 universe；盤前會從勾選類別產生候選，再選出前 10 檔。";
+    return;
+  }
+  symbolsInput.placeholder = "例如：2330.TW, 2454.TW, 2303.TW";
+  if (symbolsHint) symbolsHint.textContent = "已啟用自訂股票池；系統只會把這裡的代號加入分析範圍。";
 }
 
 function renderSummary(result) {

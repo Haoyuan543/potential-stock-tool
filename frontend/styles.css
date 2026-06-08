@@ -301,6 +301,13 @@ input:focus, select:focus, textarea:focus {
   box-shadow: 0 0 0 3px rgba(15, 118, 110, .14);
 }
 
+textarea.muted-input,
+textarea:disabled {
+  background: #f3f6f4;
+  color: var(--muted);
+  border-style: dashed;
+}
+
 button {
   border: 1px solid var(--accent);
   background: var(--accent);

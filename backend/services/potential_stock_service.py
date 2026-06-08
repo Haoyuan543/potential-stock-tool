@@ -33,6 +33,8 @@ TW_TZ = timezone(timedelta(hours=8))
 
 
 class PotentialStockService:
+    CLOUD_SAFE_DYNAMIC_SCAN_LIMIT = 60
+    LIVE_RESEARCH_BATCH_LIMIT = 15
     STOCK_NAMES = {
         "2330.TW": "台積電",
         "2454.TW": "聯發科",
@@ -394,14 +396,16 @@ class PotentialStockService:
             cached = self.research_collector.latest_dataset(symbol, max_age_minutes=240)
             if fetch_missing and (not cached or self._data_score(cached) < 70):
                 missing.append(symbol)
+        is_bulk_scan = len(normalized) > self.LIVE_RESEARCH_BATCH_LIMIT
+        live_fetch_symbols = set() if is_bulk_scan else set(missing[: self.LIVE_RESEARCH_BATCH_LIMIT])
         needs_us_tech = include_us_tech and self.research_collector.latest_us_tech_context(max_age_minutes=720) is None
         if fetch_missing and (missing or needs_us_tech):
             try:
                 await self.research_collector.collect(
                     ResearchCollectRequest(
-                        symbols=missing,
+                        symbols=list(live_fetch_symbols),
                         include_us_tech=needs_us_tech,
-                        max_symbols=max(1, len(missing)),
+                        max_symbols=max(1, len(live_fetch_symbols)),
                     )
                 )
             except Exception:
@@ -414,6 +418,16 @@ class PotentialStockService:
                 continue
             if not fetch_missing:
                 datasets.append(MarketDataset(ticker=symbol, limitations=["Data Missing: no saved research dataset available for this symbol."]))
+                continue
+            if is_bulk_scan and symbol not in live_fetch_symbols:
+                datasets.append(
+                    MarketDataset(
+                        ticker=symbol,
+                        limitations=[
+                            "Data Deferred: dynamic universe scan skipped live fetch for this symbol to keep cloud run stable; use research collector/background data to improve coverage.",
+                        ],
+                    )
+                )
                 continue
             dataset = await self.fetcher.collect(self._finmind_symbol(symbol))
             dataset.ticker = symbol
@@ -504,7 +518,7 @@ class PotentialStockService:
         return rows[-1] if rows else None
 
     def default_settings(self) -> dict[str, Any]:
-        request = PotentialStockRequest(symbols=self.DEFAULT_SYMBOLS, market_universes=["semiconductor", "electronics"])
+        request = PotentialStockRequest(symbols=[], market_universes=["semiconductor", "electronics"])
         return self._settings_from_request(request)
 
     def settings(self) -> dict[str, Any]:
@@ -1363,15 +1377,16 @@ class PotentialStockService:
         universes = request.market_universes or ([] if request.symbols else [request.market_universe])
         if not universes or universes == ["custom"]:
             return self._symbols_for_request(request)
+        scan_limit = self.CLOUD_SAFE_DYNAMIC_SCAN_LIMIT if request.use_live_data else 180
         try:
             resolved = await self.market_universe.resolve_symbols(
                 universes=universes,
                 explicit_symbols=request.symbols,
-                limit=180,
+                limit=scan_limit,
             )
             symbols = resolved.get("symbols") or []
             if symbols:
-                return self._normalize_symbols(list(symbols), limit=180)
+                return self._normalize_symbols(list(symbols), limit=scan_limit)
         except Exception:
             pass
         return self._symbols_for_request(request)
@@ -2457,7 +2472,7 @@ class PotentialStockService:
 
     def _settings_from_request(self, request: PotentialStockRequest) -> dict[str, Any]:
         return {
-            "symbols": self._normalize_symbols(request.symbols or self.DEFAULT_SYMBOLS),
+            "symbols": self._normalize_symbols(request.symbols, limit=120) if request.symbols else [],
             "market_universe": request.market_universe,
             "market_universes": request.market_universes or [request.market_universe],
             "initial_capital": request.initial_capital,
