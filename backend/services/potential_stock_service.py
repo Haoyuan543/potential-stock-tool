@@ -399,9 +399,10 @@ class PotentialStockService:
         allow_low_quality_cached: bool = False,
     ) -> list[MarketDataset]:
         normalized = self._normalize_symbols(symbols, limit=120)
+        cached_map = self._latest_research_dataset_map(normalized, max_age_minutes=240)
         missing: list[str] = []
         for symbol in normalized:
-            cached = self.research_collector.latest_dataset(symbol, max_age_minutes=240)
+            cached = cached_map.get(symbol)
             if fetch_missing and (not cached or self._data_score(cached) < 70):
                 missing.append(symbol)
         is_bulk_scan = len(normalized) > self.LIVE_RESEARCH_BATCH_LIMIT
@@ -418,9 +419,10 @@ class PotentialStockService:
                 )
             except Exception:
                 pass
+            cached_map = self._latest_research_dataset_map(normalized, max_age_minutes=240)
         datasets: list[MarketDataset] = []
         for symbol in normalized:
-            cached = self.research_collector.latest_dataset(symbol, max_age_minutes=240)
+            cached = cached_map.get(symbol)
             if cached and (allow_low_quality_cached or self._data_score(cached) >= 70):
                 datasets.append(cached)
                 continue
@@ -440,6 +442,19 @@ class PotentialStockService:
             dataset = await self.fetcher.collect(self._finmind_symbol(symbol))
             dataset.ticker = symbol
             datasets.append(dataset)
+        return datasets
+
+    def _latest_research_dataset_map(self, symbols: list[str], max_age_minutes: int = 240) -> dict[str, MarketDataset]:
+        if hasattr(self.research_collector, "latest_dataset_map"):
+            try:
+                return self.research_collector.latest_dataset_map(symbols, max_age_minutes=max_age_minutes)
+            except Exception:
+                return {}
+        datasets: dict[str, MarketDataset] = {}
+        for symbol in symbols:
+            dataset = self.research_collector.latest_dataset(symbol, max_age_minutes=max_age_minutes)
+            if dataset:
+                datasets[symbol] = dataset
         return datasets
 
     def save_report(self, report: PotentialStockReport, request: PotentialStockRequest, case_id: str | None = None) -> None:

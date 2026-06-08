@@ -113,6 +113,31 @@ class ResearchCollectorService:
                 missing.append(symbol)
         return datasets, missing
 
+    def latest_dataset_map(self, symbols: list[str], max_age_minutes: int = 240) -> dict[str, MarketDataset]:
+        targets = set(self._normalize_symbols(symbols))
+        if not targets:
+            return {}
+        cutoff = datetime.now(TW_TZ) - timedelta(minutes=max(1, max_age_minutes))
+        rows = [
+            row
+            for row in potential_stock_research_store.all()
+            if row.get("event") == "dataset_collected" and row.get("symbol") in targets
+        ]
+        rows.sort(key=lambda item: str(item.get("generated_at") or ""), reverse=True)
+        datasets: dict[str, MarketDataset] = {}
+        for row in rows:
+            symbol = str(row.get("symbol") or "")
+            if not symbol or symbol in datasets:
+                continue
+            generated_at = self._parse_dt(row.get("generated_at"))
+            if generated_at and generated_at < cutoff:
+                continue
+            try:
+                datasets[symbol] = MarketDataset.model_validate(row.get("dataset") or {})
+            except Exception:
+                continue
+        return datasets
+
     def latest_us_tech_context(self, max_age_minutes: int = 720) -> dict[str, Any] | None:
         cutoff = datetime.now(TW_TZ) - timedelta(minutes=max(1, max_age_minutes))
         rows = [row for row in potential_stock_research_store.all() if row.get("event") == "us_tech_context_collected"]

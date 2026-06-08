@@ -112,6 +112,7 @@ class PotentialStockServiceTest(unittest.TestCase):
             ],
         )
         self.service.research_collector.latest_dataset = lambda symbol, max_age_minutes=240: cached
+        self.service.research_collector.latest_dataset_map = lambda symbols, max_age_minutes=240: {"2330.TW": cached}
         self.service.research_collector.latest_us_tech_context = lambda max_age_minutes=720: None
 
         report = asyncio.run(self.service.run(request))

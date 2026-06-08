@@ -35,7 +35,7 @@ const resetSettingsButton = document.querySelector("#resetSettingsButton");
 const storageBackendInput = document.querySelector("#storageBackendInput");
 const switchStorageButton = document.querySelector("#switchStorageButton");
 const storageStatus = document.querySelector("#storageStatus");
-const APP_VERSION = "potential-20260608-dynamic-universe-stable-v2";
+const APP_VERSION = "potential-20260608-dynamic-universe-stable-v3";
 const SETTINGS_KEY = "potentialStockToolSettings";
 
 const universeSymbols = {
