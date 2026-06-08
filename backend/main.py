@@ -28,7 +28,7 @@ from backend.services.storage import set_runtime_storage_backend, storage_status
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
-BACKEND_VERSION = "potential-20260608-compact-cron-v1"
+BACKEND_VERSION = "potential-20260608-broad-candidates-v1"
 
 app = FastAPI(title="AI Alpha Research Platform", version="0.2.0")
 app.add_middleware(
@@ -376,6 +376,7 @@ async def cron_potential_stocks(
     symbols: str = Query(""),
     initial_capital: float = Query(1_000_000),
     max_positions: int = Query(5),
+    candidate_limit: int = Query(10),
     strategy_version: str = Query("potential-v1"),
     risk_reward_profile: Literal["conservative", "balanced", "aggressive"] = Query("balanced"),
     investment_horizon: Literal["short_weeks", "mid_term_3m", "long_6m", "multi_year"] = Query("mid_term_3m"),
@@ -384,9 +385,12 @@ async def cron_potential_stocks(
     use_us_tech_leading: bool = Query(True),
     send_email: bool | None = Query(None),
     background: bool = Query(True),
+    backgorund: bool | None = Query(None),
     use_saved_settings: bool = Query(True),
 ) -> dict:
     _authorize_cron(token, x_cron_token)
+    if backgorund is not None:
+        background = backgorund
     if use_saved_settings:
         request = potential_stock_service.request_from_saved_settings(session, persist=persist)
     else:
@@ -395,6 +399,7 @@ async def cron_potential_stocks(
             market_universe=market_universe,
             initial_capital=initial_capital,
             max_positions=max_positions,
+            candidate_limit=candidate_limit,
             strategy_version=strategy_version,
             risk_reward_profile=risk_reward_profile,
             investment_horizon=investment_horizon,

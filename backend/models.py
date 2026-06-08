@@ -135,6 +135,7 @@ class PotentialStockRequest(BaseModel):
     market_universes: list[Literal["semiconductor", "electronics", "industrial", "financial", "custom"]] = Field(default_factory=list)
     initial_capital: float = 3_000_000
     max_positions: int = 5
+    candidate_limit: int = 10
     max_position_pct: float = 0.2
     buy_score: int = 70
     watch_score: int = 55
@@ -225,6 +226,9 @@ class PotentialStockReport(BaseModel):
     ai_summary: str = ""
     ai_mode: Literal["disabled", "openai", "fallback"] = "disabled"
     ai_error: str = ""
+    scan_universe_size: int = 0
+    scan_universe_symbols: list[str] = Field(default_factory=list)
+    selected_candidate_symbols: list[str] = Field(default_factory=list)
 
 
 class PotentialBacktestRequest(BaseModel):

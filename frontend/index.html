@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>潛力股模擬操作工作台</title>
-  <link rel="stylesheet" href="/static/styles.css?v=potential-20260608-compact-cron-v1">
+  <link rel="stylesheet" href="/static/styles.css?v=potential-20260608-broad-candidates-v1">
 </head>
 <body>
   <main class="app-shell pro-shell">
@@ -143,6 +143,7 @@
                 <textarea id="symbolsInput" spellcheck="false">2330.TW, 2454.TW, 2303.TW, 2379.TW, 3034.TW, 3711.TW, 3443.TW, 3661.TW</textarea>
               </label>
               <label>最多持股 <input id="maxPositionsInput" type="number" min="1" max="30" step="1" value="5"></label>
+              <label>候選檔數 <input id="candidateLimitInput" type="number" min="1" max="30" step="1" value="10"></label>
               <label>單股上限 % <input id="positionCapInput" type="number" min="1" max="50" step="1" value="20"></label>
               <label>買進門檻 <input id="buyScoreInput" type="number" min="1" max="100" step="1" value="70"></label>
               <label>
@@ -235,6 +236,6 @@
     </section>
   </main>
 
-  <script src="/static/app.js?v=potential-20260608-compact-cron-v1" charset="utf-8"></script>
+  <script src="/static/app.js?v=potential-20260608-broad-candidates-v1" charset="utf-8"></script>
 </body>
 </html>

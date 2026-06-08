@@ -49,6 +49,68 @@ class PotentialStockService:
         "3017.TW": "奇鋐",
         "2308.TW": "台達電",
         "4938.TW": "和碩",
+        "2344.TW": "華邦電",
+        "2408.TW": "南亞科",
+        "2449.TW": "京元電子",
+        "2363.TW": "矽統",
+        "2441.TW": "超豐",
+        "3189.TW": "景碩",
+        "3016.TW": "嘉晶",
+        "3035.TW": "智原",
+        "3529.TW": "力旺",
+        "3583.TW": "辛耘",
+        "4919.TW": "新唐",
+        "5347.TWO": "世界",
+        "6488.TWO": "環球晶",
+        "6770.TW": "力積電",
+        "6415.TW": "矽力*-KY",
+        "3037.TW": "欣興",
+        "2388.TW": "威盛",
+        "3264.TWO": "欣銓",
+        "5274.TWO": "信驊",
+        "6531.TW": "愛普*",
+        "6643.TW": "M31",
+        "6789.TW": "采鈺",
+        "6799.TW": "來頡",
+        "6515.TW": "穎崴",
+        "6683.TW": "雍智科技",
+        "6435.TW": "大中",
+        "3227.TWO": "原相",
+        "6239.TW": "力成",
+        "8046.TW": "南電",
+        "8131.TW": "福懋科",
+        "8150.TW": "南茂",
+        "8086.TWO": "宏捷科",
+        "3374.TWO": "精材",
+        "3588.TW": "通嘉",
+        "6202.TW": "盛群",
+        "3006.TW": "晶豪科",
+        "2369.TW": "菱生",
+        "5471.TWO": "松翰",
+        "5483.TWO": "中美晶",
+        "3105.TWO": "穩懋",
+        "2376.TW": "技嘉",
+        "2377.TW": "微星",
+        "2324.TW": "仁寶",
+        "2395.TW": "研華",
+        "3013.TW": "晟銘電",
+        "3324.TWO": "雙鴻",
+        "3693.TW": "營邦",
+        "3653.TW": "健策",
+        "6414.TW": "樺漢",
+        "6274.TWO": "台燿",
+        "8210.TW": "勤誠",
+        "6805.TW": "富世達",
+        "8996.TW": "高力",
+        "2421.TW": "建準",
+        "3706.TW": "神達",
+        "6271.TW": "同欣電",
+        "6285.TW": "啟碁",
+        "5388.TWO": "中磊",
+        "6150.TWO": "撼訊",
+        "8215.TW": "明基材",
+        "6230.TW": "超眾",
+        "2393.TW": "億光",
         "2603.TW": "長榮",
         "2609.TW": "陽明",
         "2615.TW": "萬海",
@@ -67,8 +129,20 @@ class PotentialStockService:
         "5876.TW": "上海商銀",
     }
     UNIVERSES = {
-        "semiconductor": ["2330.TW", "2454.TW", "2303.TW", "2379.TW", "3034.TW", "3711.TW", "3443.TW", "3661.TW"],
-        "electronics": ["2317.TW", "2382.TW", "3231.TW", "2356.TW", "6669.TW", "3017.TW", "2308.TW", "4938.TW"],
+        "semiconductor": [
+            "2330.TW", "2454.TW", "2303.TW", "2379.TW", "3034.TW", "3711.TW", "3443.TW", "3661.TW",
+            "2344.TW", "2408.TW", "2449.TW", "2363.TW", "2441.TW", "3189.TW", "3016.TW", "3035.TW",
+            "3529.TW", "3583.TW", "4919.TW", "5347.TWO", "6488.TWO", "6770.TW", "6415.TW", "3037.TW",
+            "2388.TW", "3264.TWO", "5274.TWO", "6531.TW", "6643.TW", "6789.TW", "6799.TW", "6515.TW",
+            "6683.TW", "6435.TW", "3227.TWO", "6239.TW", "8046.TW", "8131.TW", "8150.TW", "8086.TWO",
+            "3374.TWO", "3588.TW", "6202.TW", "3006.TW", "2369.TW", "5471.TWO", "5483.TWO", "3105.TWO",
+        ],
+        "electronics": [
+            "2317.TW", "2382.TW", "3231.TW", "2356.TW", "6669.TW", "3017.TW", "2308.TW", "4938.TW",
+            "2376.TW", "2377.TW", "2324.TW", "2395.TW", "3013.TW", "3324.TWO", "3693.TW", "3653.TW",
+            "6414.TW", "6274.TWO", "8210.TW", "6805.TW", "8996.TW", "2421.TW", "3706.TW", "6271.TW",
+            "6285.TW", "5388.TWO", "6150.TWO", "8215.TW", "6230.TW", "2393.TW",
+        ],
         "industrial": ["2603.TW", "2609.TW", "2615.TW", "2002.TW", "1301.TW", "1303.TW", "1513.TW", "2049.TW"],
         "financial": ["2881.TW", "2882.TW", "2884.TW", "2885.TW", "2886.TW", "2891.TW", "2892.TW", "5876.TW"],
     }
@@ -241,7 +315,8 @@ class PotentialStockService:
         if existing:
             return self._report_from_record(existing)
 
-        symbols = self._symbols_for_request(request)
+        scan_symbols = self._symbols_for_session(request, case_id=case_id)
+        symbols = scan_symbols
         if request.use_live_data:
             datasets = await self._datasets_for_symbols(symbols, include_us_tech=request.use_us_tech_leading)
         else:
@@ -252,6 +327,9 @@ class PotentialStockService:
             us_tech_context = await self._build_us_tech_context(request)
         analyses = [self._analyze_dataset(dataset, request, us_tech_context=us_tech_context) for dataset in datasets]
         analyses.sort(key=lambda item: item.score, reverse=True)
+        candidate_limit = self._candidate_limit(request)
+        if request.report_session == "pre_market" or (request.report_session == "market_hours" and not request.persist):
+            analyses = analyses[:candidate_limit]
         if request.report_session == "market_hours" and not request.persist:
             portfolio = self._analysis_only_portfolio(analyses, request)
         elif request.report_session == "pre_market":
@@ -262,6 +340,7 @@ class PotentialStockService:
             portfolio = self._paper_trade_with_ledger(analyses, request, case_id=case_id)
         market_stance = self._market_stance(analyses)
         limitations = self._friendly_data_messages(sorted({item for analysis in analyses for item in analysis.data_limitations}))
+        selected_candidate_symbols = [item.symbol for item in analyses[:candidate_limit]]
         markdown = self._markdown(request, market_stance, analyses, portfolio, limitations, case_id=case_id)
         ai_summary = ""
         ai_mode = "disabled"
@@ -285,6 +364,9 @@ class PotentialStockService:
             ai_summary=ai_summary,
             ai_mode=ai_mode,
             ai_error=ai_error,
+            scan_universe_size=len(scan_symbols),
+            scan_universe_symbols=scan_symbols,
+            selected_candidate_symbols=selected_candidate_symbols,
         )
         if request.persist:
             self.save_report(report, request, case_id=case_id)
@@ -293,7 +375,7 @@ class PotentialStockService:
         return report
 
     async def _datasets_for_symbols(self, symbols: list[str], include_us_tech: bool = False) -> list[MarketDataset]:
-        normalized = self._normalize_symbols(symbols)
+        normalized = self._normalize_symbols(symbols, limit=120)
         missing: list[str] = []
         for symbol in normalized:
             cached = self.research_collector.latest_dataset(symbol, max_age_minutes=240)
@@ -346,9 +428,13 @@ class PotentialStockService:
                 "strategy_version": request.strategy_version,
                 "risk_reward_profile": request.risk_reward_profile,
                 "investment_horizon": request.investment_horizon,
+                "candidate_limit": request.candidate_limit,
                 "market_stance": report.market_stance,
                 "portfolio": report.portfolio.model_dump(mode="json"),
                 "analyses": [item.model_dump(mode="json") for item in report.analyses],
+                "scan_universe_size": report.scan_universe_size,
+                "scan_universe_symbols": report.scan_universe_symbols,
+                "selected_candidate_symbols": report.selected_candidate_symbols,
                 "markdown": report.markdown,
                 "data_limitations": report.data_limitations,
                 "ai_mode": report.ai_mode,
@@ -501,6 +587,9 @@ class PotentialStockService:
             ai_summary=str(row.get("ai_summary") or ""),
             ai_mode=row.get("ai_mode") or "disabled",
             ai_error=str(row.get("ai_error") or ""),
+            scan_universe_size=int(row.get("scan_universe_size") or len(row.get("scan_universe_symbols") or [])),
+            scan_universe_symbols=self._normalize_symbols(list(row.get("scan_universe_symbols") or []), limit=120) if row.get("scan_universe_symbols") else [],
+            selected_candidate_symbols=self._symbols_from_report_record(row),
         )
 
     def _immutable_record_markdown(self, row: dict[str, Any], analyses: list[PotentialStockAnalysis], portfolio: PaperPortfolio) -> str:
@@ -1245,19 +1334,48 @@ class PotentialStockService:
 ## 修正建議
 {fixes}
 """
+    def _symbols_for_session(self, request: PotentialStockRequest, case_id: str | None = None) -> list[str]:
+        if request.persist and request.report_session in {"market_hours", "post_market"}:
+            tracked = self._tracked_candidate_symbols(case_id=case_id)
+            if tracked:
+                return tracked
+        return self._symbols_for_request(request)
+
+    def _tracked_candidate_symbols(self, case_id: str | None = None) -> list[str]:
+        premarket = self._today_report_record("pre_market", case_id=case_id)
+        symbols = self._symbols_from_report_record(premarket)
+        if symbols:
+            return symbols
+        return []
+
+    def _symbols_from_report_record(self, record: dict[str, Any] | None) -> list[str]:
+        if not record:
+            return []
+        selected = record.get("selected_candidate_symbols") or []
+        if selected:
+            return self._normalize_symbols(list(selected), limit=100)
+        analyses = record.get("analyses") or []
+        return self._normalize_symbols([item.get("symbol") for item in analyses if item.get("symbol")], limit=100)
+
+    def _candidate_limit(self, request: PotentialStockRequest) -> int:
+        try:
+            value = int(request.candidate_limit)
+        except (TypeError, ValueError):
+            value = 10
+        return max(1, min(30, value))
+
     def _symbols_for_request(self, request: PotentialStockRequest) -> list[str]:
+        universes = request.market_universes or ([] if request.symbols else [request.market_universe])
+        symbols: list[str] = []
+        for universe in universes:
+            if universe == "custom":
+                continue
+            symbols.extend(self.UNIVERSES.get(universe, []))
         if request.symbols:
-            symbols = request.symbols
-        else:
-            universes = request.market_universes or [request.market_universe]
-            symbols = []
-            for universe in universes:
-                if universe == "custom":
-                    continue
-                symbols.extend(self.UNIVERSES.get(universe, []))
-            if not symbols:
-                symbols = self.UNIVERSES["semiconductor"]
-        return self._normalize_symbols(symbols)
+            symbols.extend(request.symbols)
+        if not symbols:
+            symbols = request.symbols or self.UNIVERSES["semiconductor"]
+        return self._normalize_symbols(symbols, limit=120)
 
     def _record_case_id(self, row: dict[str, Any]) -> str:
         return str(row.get("case_id") or "default")
@@ -1327,7 +1445,7 @@ class PotentialStockService:
         }
         return await self.ai.analyze_potential_stocks(payload)
 
-    def _normalize_symbols(self, symbols: list[str]) -> list[str]:
+    def _normalize_symbols(self, symbols: list[str], limit: int = 30) -> list[str]:
         cleaned: list[str] = []
         for symbol in symbols:
             value = str(symbol).strip().upper()
@@ -1337,7 +1455,7 @@ class PotentialStockService:
                 value = f"{value}.TW"
             if value not in cleaned:
                 cleaned.append(value)
-        return cleaned[:30] or self.UNIVERSES["semiconductor"]
+        return cleaned[: max(1, limit)] or self.UNIVERSES["semiconductor"]
 
     def _finmind_symbol(self, symbol: str) -> str:
         return symbol.split(".")[0] if symbol.endswith((".TW", ".TWO")) else symbol
@@ -2248,6 +2366,7 @@ class PotentialStockService:
             "swap_score_gap": request.swap_score_gap,
             "min_hold_days": request.min_hold_days,
             "max_positions": request.max_positions,
+            "candidate_limit": request.candidate_limit,
             "max_position_pct": request.max_position_pct,
             "fee_rate": request.fee_rate,
             "tax_rate": request.tax_rate,
@@ -2262,6 +2381,7 @@ class PotentialStockService:
             "market_universes": request.market_universes or [request.market_universe],
             "initial_capital": request.initial_capital,
             "max_positions": request.max_positions,
+            "candidate_limit": request.candidate_limit,
             "max_position_pct": request.max_position_pct,
             "buy_score": request.buy_score,
             "watch_score": request.watch_score,
@@ -2382,6 +2502,9 @@ class PotentialStockService:
 {per_stock}
 
 ## 策略設定
+- 掃描範圍：{len(self._symbols_for_request(request))} 檔
+- 候選輸出：前 {self._candidate_limit(request)} 檔
+- 本次候選：{", ".join([f"{item.symbol} {item.company_name}" for item in analyses[: self._candidate_limit(request)]]) or "--"}
 - 單股上限：{request.max_position_pct * 100:.1f}%
 - 最多持股：{request.max_positions}
 - 買進門檻：{request.buy_score}/100

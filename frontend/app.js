@@ -34,7 +34,7 @@ const resetSettingsButton = document.querySelector("#resetSettingsButton");
 const storageBackendInput = document.querySelector("#storageBackendInput");
 const switchStorageButton = document.querySelector("#switchStorageButton");
 const storageStatus = document.querySelector("#storageStatus");
-const APP_VERSION = "potential-20260608-compact-cron-v1";
+const APP_VERSION = "potential-20260608-broad-candidates-v1";
 const SETTINGS_KEY = "potentialStockToolSettings";
 
 const universeSymbols = {
@@ -49,6 +49,7 @@ const DEFAULT_SETTINGS = {
   market_universes: ["semiconductor", "electronics"],
   initial_capital: 3000000,
   max_positions: 5,
+  candidate_limit: 10,
   max_position_pct: 20,
   buy_score: 70,
   risk_reward_profile: "balanced",
@@ -558,6 +559,7 @@ function collectSettings() {
     market_universes: selectedUniverseValues(),
     initial_capital: numberValue("#capitalInput", DEFAULT_SETTINGS.initial_capital),
     max_positions: numberValue("#maxPositionsInput", DEFAULT_SETTINGS.max_positions),
+    candidate_limit: numberValue("#candidateLimitInput", DEFAULT_SETTINGS.candidate_limit),
     max_position_pct: numberValue("#positionCapInput", DEFAULT_SETTINGS.max_position_pct),
     buy_score: numberValue("#buyScoreInput", DEFAULT_SETTINGS.buy_score),
     risk_reward_profile: document.querySelector("#riskRewardInput").value,
@@ -583,6 +585,7 @@ function applySettings(settings, options = {}) {
   const includeCapital = options.includeCapital !== false;
   if (includeCapital) capitalInput.value = String(settings.initial_capital || DEFAULT_SETTINGS.initial_capital);
   setValue("#maxPositionsInput", settings.max_positions);
+  setValue("#candidateLimitInput", settings.candidate_limit);
   setValue("#positionCapInput", settings.max_position_pct);
   setValue("#buyScoreInput", settings.buy_score);
   setValue("#riskRewardInput", settings.risk_reward_profile);
@@ -653,6 +656,7 @@ function readInputs(reportSession, options = {}) {
     market_universes: selectedUniverses,
     initial_capital: numberValue("#capitalInput", DEFAULT_SETTINGS.initial_capital),
     max_positions: numberValue("#maxPositionsInput", 5),
+    candidate_limit: numberValue("#candidateLimitInput", 10),
     max_position_pct: numberValue("#positionCapInput", 20) / 100,
     buy_score: numberValue("#buyScoreInput", 70),
     risk_reward_profile: document.querySelector("#riskRewardInput").value,

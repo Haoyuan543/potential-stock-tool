@@ -51,6 +51,79 @@ class PotentialStockServiceTest(unittest.TestCase):
         self.assertIn("2881.TW", symbols)
         self.assertEqual(len(symbols), len(set(symbols)))
 
+    def test_semiconductor_ai_universe_scans_beyond_custom_pool(self) -> None:
+        request = PotentialStockRequest(
+            symbols=["2330.TW", "2454.TW"],
+            market_universes=["semiconductor", "electronics"],
+            use_live_data=False,
+        )
+        symbols = self.service._symbols_for_request(request)
+
+        self.assertGreater(len(symbols), 30)
+        self.assertIn("2344.TW", symbols)
+        self.assertIn("2376.TW", symbols)
+        self.assertIn("2330.TW", symbols)
+        self.assertEqual(len(symbols), len(set(symbols)))
+
+    def test_premarket_broad_scan_keeps_top_ten_candidates(self) -> None:
+        request = PotentialStockRequest(
+            symbols=["2330.TW", "2454.TW"],
+            market_universes=["semiconductor", "electronics"],
+            report_session="pre_market",
+            candidate_limit=10,
+            use_live_data=False,
+            persist=False,
+        )
+
+        report = asyncio.run(self.service.run(request))
+
+        self.assertEqual(len(report.analyses), 10)
+        self.assertEqual(len(report.selected_candidate_symbols), 10)
+        self.assertGreater(report.scan_universe_size, 30)
+        self.assertIn("本次候選", report.markdown)
+
+    def test_market_hours_tracks_premarket_selected_candidates(self) -> None:
+        original_run_store = potential_stock_module.potential_stock_store
+        try:
+            today = datetime.now(TW_TEST_TZ).date().isoformat()
+            selected = ["2330.TW", "2454.TW", "2376.TW", "2382.TW"]
+            potential_stock_module.potential_stock_store = self._memory_store(
+                [
+                    {
+                        "case_id": "default",
+                        "generated_at": datetime.now(TW_TEST_TZ).isoformat(),
+                        "trading_date": today,
+                        "report_session": "pre_market",
+                        "market_stance": "偏多",
+                        "portfolio": {
+                            "initial_capital": 1_000_000,
+                            "cash": 1_000_000,
+                            "invested_value": 0,
+                            "total_value": 1_000_000,
+                            "unrealized_pl": 0,
+                            "return_pct": 0,
+                            "holdings": [],
+                            "trades": [],
+                        },
+                        "analyses": [{"symbol": symbol, "score": 70, "action": "BUY", "risk_level": "Medium"} for symbol in selected],
+                        "selected_candidate_symbols": selected,
+                    }
+                ]
+            )
+            request = PotentialStockRequest(
+                market_universes=["semiconductor", "electronics"],
+                report_session="market_hours",
+                candidate_limit=10,
+                use_live_data=False,
+                persist=True,
+            )
+
+            symbols = self.service._symbols_for_session(request, case_id="default")
+
+            self.assertEqual(symbols, selected)
+        finally:
+            potential_stock_module.potential_stock_store = original_run_store
+
     def test_default_risk_profile_and_horizon(self) -> None:
         request = PotentialStockRequest(use_live_data=False)
 
@@ -1361,14 +1434,16 @@ class PotentialStockApiTest(unittest.TestCase):
         client = TestClient(app)
         response = client.post(
             "/api/potential-stocks",
-            json={"market_universe": "electronics", "initial_capital": 1_000_000, "use_live_data": False, "persist": False},
+            json={"market_universe": "electronics", "report_session": "pre_market", "initial_capital": 1_000_000, "use_live_data": False, "persist": False},
         )
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload["portfolio"]["initial_capital"], 1_000_000)
         self.assertIn("replacement_suggestions", payload["portfolio"])
-        self.assertEqual(len(payload["analyses"]), 8)
+        self.assertEqual(len(payload["analyses"]), 10)
+        self.assertGreater(payload["scan_universe_size"], 10)
+        self.assertEqual(len(payload["selected_candidate_symbols"]), 10)
         self.assertEqual(payload["analyses"][0]["symbol"], "2317.TW")
         self.assertEqual(payload["analyses"][0]["company_name"], "鴻海")
         self.assertTrue(payload["markdown"].startswith("# 潛力股模擬操作報告"))
@@ -1589,6 +1664,35 @@ class PotentialStockApiTest(unittest.TestCase):
             self.assertTrue(payload["accepted"])
             self.assertTrue(payload["background"])
             self.assertEqual(payload["report_session"], "market_hours")
+        finally:
+            if old_secret is None:
+                os.environ.pop("CRON_JOB_SECRET", None)
+            else:
+                os.environ["CRON_JOB_SECRET"] = old_secret
+            get_settings.cache_clear()
+
+    def test_cron_endpoint_accepts_common_background_typo(self) -> None:
+        old_secret = os.environ.get("CRON_JOB_SECRET")
+        os.environ["CRON_JOB_SECRET"] = "unit-test-secret"
+        get_settings.cache_clear()
+        try:
+            client = TestClient(app)
+            response = client.get(
+                "/api/cron/potential-stocks",
+                params={
+                    "session": "pre_market",
+                    "persist": "false",
+                    "use_live_data": "false",
+                    "use_saved_settings": "false",
+                    "send_email": "false",
+                    "backgorund": "true",
+                    "token": "unit-test-secret",
+                },
+            )
+            self.assertEqual(response.status_code, 202)
+            payload = response.json()
+            self.assertTrue(payload["accepted"])
+            self.assertTrue(payload["background"])
         finally:
             if old_secret is None:
                 os.environ.pop("CRON_JOB_SECRET", None)
