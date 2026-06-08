@@ -514,6 +514,10 @@ class PotentialStockServiceTest(unittest.TestCase):
         self.assertTrue(any("夜盤" in item or "血洗" in item or "恐慌" in item for item in analysis.news_impact_summary))
         self.assertTrue(any(link["url"] == "https://example.com/night-futures-crash" for link in analysis.evidence_links))
         self.assertTrue(any(link["url"] == "https://example.com/cowos-capacity" for link in analysis.evidence_links))
+        self.assertIn("當前事件判讀", analysis.thesis)
+        self.assertIn("操作含意", analysis.thesis)
+        self.assertTrue("夜盤" in analysis.thesis or "血洗" in analysis.thesis or "恐慌" in analysis.thesis)
+        self.assertTrue("CoWoS" in analysis.thesis or "產能" in analysis.thesis)
 
     def test_auto_report_session_resolves_by_taiwan_market_time(self) -> None:
         self.assertEqual(self.service._resolve_report_session("auto", datetime(2026, 6, 5, 8, 30, tzinfo=TW_TEST_TZ)), "pre_market")

@@ -34,7 +34,7 @@ const resetSettingsButton = document.querySelector("#resetSettingsButton");
 const storageBackendInput = document.querySelector("#storageBackendInput");
 const switchStorageButton = document.querySelector("#switchStorageButton");
 const storageStatus = document.querySelector("#storageStatus");
-const APP_VERSION = "potential-20260608-threaded-cron-v1";
+const APP_VERSION = "potential-20260608-rich-thesis-v1";
 const SETTINGS_KEY = "potentialStockToolSettings";
 
 const universeSymbols = {

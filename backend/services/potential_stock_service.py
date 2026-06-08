@@ -1541,7 +1541,17 @@ class PotentialStockService:
             us_summary if request.use_us_tech_leading else [],
             risks,
         )
-        thesis = self._thesis(symbol, company_name, score, action, advantages, risks, score_explanation)
+        thesis = self._thesis(
+            symbol,
+            company_name,
+            score,
+            action,
+            advantages,
+            risks,
+            score_explanation,
+            news_impact_summary,
+            related_news,
+        )
         return PotentialStockAnalysis(
             symbol=symbol,
             company_name=company_name,
@@ -2444,13 +2454,61 @@ class PotentialStockService:
     def _risks(self, scores: dict[str, int], dataset: MarketDataset) -> list[str]:
         return _potential_risks_v2(self, scores, dataset)
 
-    def _thesis(self, symbol: str, company_name: str, score: int, action: str, advantages: list[str], risks: list[str], score_explanation: list[str] | None = None) -> str:
-        risk = risks[0] if risks else "暫無重大風險訊號。"
-        advantage = advantages[0] if advantages else "暫無明確單一優勢。"
-        score_detail = ""
-        if score_explanation:
-            score_detail = f" 分數拆解：{score_explanation[0]}"
-        return f"{symbol} {company_name} 分數 {score}/100，建議 {self._action_label(action)}。主要理由：{advantage} 主要風險：{risk}{score_detail}"
+    def _thesis(
+        self,
+        symbol: str,
+        company_name: str,
+        score: int,
+        action: str,
+        advantages: list[str],
+        risks: list[str],
+        score_explanation: list[str] | None = None,
+        news_impact_summary: list[str] | None = None,
+        related_news: list[str] | None = None,
+    ) -> str:
+        advantage_text = "；".join(item for item in advantages[:2]) or "暫無明確單一優勢，需等待更多確認。"
+        risk_text = "；".join(item for item in risks[:2]) or "暫無重大風險訊號。"
+        positive_evidence = self._compact_thesis_evidence(score_explanation or [], prefer_positive=True)
+        negative_evidence = self._compact_thesis_evidence(score_explanation or [], prefer_positive=False)
+        event_text = self._compact_event_context(news_impact_summary or [], related_news or [])
+        action_note = {
+            "BUY": "操作含意：可以列入買進候選，但仍要等盤中實際價格、滑價與流動性確認，若外部風險延續不追價。",
+            "WATCH": "操作含意：目前較適合觀察，等盤中價格站穩、風險新聞降溫或籌碼延續再考慮進場。",
+            "AVOID": "操作含意：暫不納入交易，除非後續資料改善且風險事件解除。",
+            "HOLD": "操作含意：若已有部位以續抱/風控為主，觀察分數是否跌破賣出門檻。",
+        }.get(action, "操作含意：依盤中價格與風險變化重新確認。")
+        parts = [
+            f"{symbol} {company_name} 分數 {score}/100，建議 {self._action_label(action)}。",
+            f"加分來源：{advantage_text}{positive_evidence}",
+            f"扣分與風險：{risk_text}{negative_evidence}",
+        ]
+        if event_text:
+            parts.append(f"當前事件判讀：{event_text}")
+        parts.append(action_note)
+        return " ".join(parts)
+
+    def _compact_thesis_evidence(self, explanations: list[str], prefer_positive: bool) -> str:
+        if not explanations:
+            return "。"
+        if prefer_positive:
+            selected = [item for item in explanations if "加分因子" in item][:2]
+        else:
+            selected = [item for item in explanations if "扣分因子" in item or "風險折抵" in item][:2]
+        if not selected:
+            return "。"
+        trimmed = []
+        for item in selected:
+            text = item.split("依據：", 1)[-1] if "依據：" in item else item
+            trimmed.append(text[:120])
+        return f"；依據：{'；'.join(trimmed)}。"
+
+    def _compact_event_context(self, news_impact_summary: list[str], related_news: list[str]) -> str:
+        shocks = [item for item in news_impact_summary if any(word in item for word in ("夜盤", "美半導體", "台指期", "血洗", "崩", "大跌", "恐慌", "賣壓"))]
+        positives = [item for item in news_impact_summary if any(word in item for word in ("CoWoS", "HBM", "NVIDIA", "輝達", "產能", "訂單", "先進封裝", "受惠"))]
+        selected = [*shocks[:1], *positives[:1]]
+        if not selected and related_news:
+            selected = related_news[:1]
+        return "；".join(item[:160] for item in selected)
 
     def _market_stance(self, analyses: list[PotentialStockAnalysis]) -> str:
         if not analyses:
