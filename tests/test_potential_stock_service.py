@@ -1612,16 +1612,16 @@ class PotentialStockApiTest(unittest.TestCase):
 
     def test_cron_endpoint_defaults_to_background_compact_response(self) -> None:
         old_secret = os.environ.get("CRON_JOB_SECRET")
-        original_schedule_saved = backend_main_module.potential_stock_cron._run_saved_settings_background
+        original_schedule_saved = backend_main_module.potential_stock_cron.schedule_saved_settings
         os.environ["CRON_JOB_SECRET"] = "unit-test-secret"
         get_settings.cache_clear()
         try:
             scheduled: list[dict[str, object]] = []
 
-            async def fake_schedule_saved(report_session: str, persist: bool = True, send_email: bool | None = None) -> None:
+            def fake_schedule_saved(report_session: str, persist: bool = True, send_email: bool | None = None) -> None:
                 scheduled.append({"report_session": report_session, "persist": persist, "send_email": send_email})
 
-            backend_main_module.potential_stock_cron._run_saved_settings_background = fake_schedule_saved
+            backend_main_module.potential_stock_cron.schedule_saved_settings = fake_schedule_saved
             client = TestClient(app)
             response = client.get(
                 "/api/cron/potential-stocks",
@@ -1641,7 +1641,7 @@ class PotentialStockApiTest(unittest.TestCase):
             self.assertNotIn("markdown", payload)
             self.assertEqual(scheduled, [{"report_session": "pre_market", "persist": True, "send_email": None}])
         finally:
-            backend_main_module.potential_stock_cron._run_saved_settings_background = original_schedule_saved
+            backend_main_module.potential_stock_cron.schedule_saved_settings = original_schedule_saved
             if old_secret is None:
                 os.environ.pop("CRON_JOB_SECRET", None)
             else:

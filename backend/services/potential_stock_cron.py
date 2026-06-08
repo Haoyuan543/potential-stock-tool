@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from typing import Any, Callable
 
 from pydantic import BaseModel
@@ -68,19 +69,20 @@ class PotentialStockCronRunner:
         }
 
     def schedule(self, request: PotentialStockRequest, report_session: str, send_email: bool | None = None) -> None:
-        task = asyncio.create_task(self._run_background(request, report_session, send_email))
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        self._start_background_thread(self._run_background(request, report_session, send_email))
 
     def schedule_with_sequence(self, request: PotentialStockRequest, report_session: str, send_email: bool | None = None) -> None:
-        task = asyncio.create_task(self._run_background_with_sequence(request, report_session, send_email))
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        self._start_background_thread(self._run_background_with_sequence(request, report_session, send_email))
 
     def schedule_saved_settings(self, report_session: str, persist: bool = True, send_email: bool | None = None) -> None:
-        task = asyncio.create_task(self._run_saved_settings_background(report_session, persist, send_email))
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        self._start_background_thread(self._run_saved_settings_background(report_session, persist, send_email))
+
+    def _start_background_thread(self, coroutine: Any) -> None:
+        def runner() -> None:
+            asyncio.run(coroutine)
+
+        thread = threading.Thread(target=runner, name="potential-stock-cron", daemon=True)
+        thread.start()
 
     async def _run_background(self, request: PotentialStockRequest, report_session: str, send_email: bool | None = None) -> None:
         try:

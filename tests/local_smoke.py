@@ -40,7 +40,7 @@ def main() -> None:
         "switchStorageButton",
         "storageStatus",
         "納入前一晚美股科技 / 半導體領先因子",
-        "potential-20260608-detached-cron-v3",
+        "potential-20260608-threaded-cron-v1",
     ]:
         assert marker in home.text
 
@@ -63,7 +63,7 @@ def main() -> None:
         assert marker in home.text
     assert home.text.index('id="dailyOutput"') < home.text.index('id="rankingOutput"')
     for marker in [
-        'APP_VERSION = "potential-20260608-detached-cron-v3"',
+        'APP_VERSION = "potential-20260608-threaded-cron-v1"',
         "decisionReviewTable",
         "decisionChangeLabel",
         "readApiError",
@@ -133,7 +133,7 @@ def main() -> None:
 
     health = client.get("/health")
     assert health.status_code == 200
-    assert health.json()["backend_version"] == "potential-20260608-detached-cron-v3"
+    assert health.json()["backend_version"] == "potential-20260608-threaded-cron-v1"
     assert health.json()["storage"]["backend"] in {"local", "supabase"}
 
     storage_status = client.get("/api/storage/status")
@@ -157,7 +157,8 @@ def main() -> None:
     assert "PotentialStockCronRunner" in main_py
     cron_py = (ROOT / "backend" / "services" / "potential_stock_cron.py").read_text(encoding="utf-8")
     assert "send_potential_stock_report_email" in cron_py
-    assert "asyncio.create_task" in cron_py
+    assert "threading.Thread" in cron_py
+    assert "_start_background_thread" in cron_py
     assert "_run_background" in cron_py
     storage_py = (ROOT / "backend" / "services" / "storage.py").read_text(encoding="utf-8")
     assert "SupabaseJsonStore" in storage_py

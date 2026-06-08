@@ -28,7 +28,7 @@ from backend.services.storage import set_runtime_storage_backend, storage_status
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
-BACKEND_VERSION = "potential-20260608-detached-cron-v3"
+BACKEND_VERSION = "potential-20260608-threaded-cron-v1"
 
 app = FastAPI(title="AI Alpha Research Platform", version="0.2.0")
 app.add_middleware(
@@ -394,7 +394,7 @@ async def cron_potential_stocks(
         background = backgorund
     if use_saved_settings:
         if background:
-            background_tasks.add_task(potential_stock_cron._run_saved_settings_background, session, persist, send_email)
+            background_tasks.add_task(potential_stock_cron.schedule_saved_settings, session, persist, send_email)
             return _cron_accepted_response(session)
         request = potential_stock_service.request_from_saved_settings(session, persist=persist)
     else:
@@ -414,7 +414,7 @@ async def cron_potential_stocks(
             persist=persist,
         )
         if background:
-            background_tasks.add_task(potential_stock_cron._run_background_with_sequence, request, session, send_email)
+            background_tasks.add_task(potential_stock_cron.schedule_with_sequence, request, session, send_email)
             return _cron_accepted_response(session)
     sequence = potential_stock_service.sequence_check(session, persist=persist)
     if not sequence["allowed"]:
@@ -426,7 +426,7 @@ async def cron_potential_stocks(
 async def cron_potential_stocks_post(request: CronPotentialStockRequest, background_tasks: BackgroundTasks, x_cron_token: str = Header(default="")) -> dict:
     _authorize_cron(request.token, x_cron_token)
     if request.background and request.use_saved_settings:
-        background_tasks.add_task(potential_stock_cron._run_saved_settings_background, request.report_session, request.persist, request.send_email)
+        background_tasks.add_task(potential_stock_cron.schedule_saved_settings, request.report_session, request.persist, request.send_email)
         return _cron_accepted_response(request.report_session)
     safe_request = (
         potential_stock_service.request_from_saved_settings(request.report_session, persist=request.persist)
@@ -434,7 +434,7 @@ async def cron_potential_stocks_post(request: CronPotentialStockRequest, backgro
         else PotentialStockRequest.model_validate(request.model_dump(mode="json"))
     )
     if request.background:
-        background_tasks.add_task(potential_stock_cron._run_background_with_sequence, safe_request, safe_request.report_session, request.send_email)
+        background_tasks.add_task(potential_stock_cron.schedule_with_sequence, safe_request, safe_request.report_session, request.send_email)
         return _cron_accepted_response(safe_request.report_session)
     sequence = potential_stock_service.sequence_check(safe_request.report_session, persist=safe_request.persist)
     if not sequence["allowed"]:
