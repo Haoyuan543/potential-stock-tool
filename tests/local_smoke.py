@@ -64,7 +64,7 @@ def main() -> None:
         assert marker in home.text
     assert home.text.index('id="dailyOutput"') < home.text.index('id="rankingOutput"')
     for marker in [
-        'APP_VERSION = "potential-20260608-dynamic-universe-stable-v3"',
+        'APP_VERSION = "potential-20260609-cloud-settings-v4"',
         "decisionReviewTable",
         "decisionChangeLabel",
         "readApiError",
@@ -134,7 +134,7 @@ def main() -> None:
 
     health = client.get("/health")
     assert health.status_code == 200
-    assert health.json()["backend_version"] == "potential-20260608-dynamic-universe-stable-v3"
+    assert health.json()["backend_version"] == "potential-20260609-cloud-settings-v4"
     assert health.json()["storage"]["backend"] in {"local", "supabase"}
 
     storage_status = client.get("/api/storage/status")

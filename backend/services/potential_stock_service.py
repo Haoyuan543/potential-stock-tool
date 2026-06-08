@@ -2494,10 +2494,12 @@ class PotentialStockService:
         }
 
     def _settings_from_request(self, request: PotentialStockRequest) -> dict[str, Any]:
+        market_universes = request.market_universes or [request.market_universe]
+        uses_custom_symbols = "custom" in market_universes or request.market_universe == "custom"
         return {
-            "symbols": self._normalize_symbols(request.symbols, limit=120) if request.symbols else [],
+            "symbols": self._normalize_symbols(request.symbols, limit=120) if uses_custom_symbols and request.symbols else [],
             "market_universe": request.market_universe,
-            "market_universes": request.market_universes or [request.market_universe],
+            "market_universes": market_universes,
             "initial_capital": request.initial_capital,
             "max_positions": request.max_positions,
             "candidate_limit": request.candidate_limit,
@@ -2528,6 +2530,9 @@ class PotentialStockService:
         symbols = data.get("symbols") or []
         if isinstance(symbols, str):
             data["symbols"] = [item.strip() for item in symbols.replace(";", ",").split(",") if item.strip()]
+        market_universes = data.get("market_universes") or [data.get("market_universe") or "semiconductor"]
+        if "custom" not in market_universes and data.get("market_universe") != "custom":
+            data["symbols"] = []
         return PotentialStockRequest.model_validate(data)
 
     def _analysis_only_portfolio(self, analyses: list[PotentialStockAnalysis], request: PotentialStockRequest) -> PaperPortfolio:

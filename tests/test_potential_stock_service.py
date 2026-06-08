@@ -121,6 +121,32 @@ class PotentialStockServiceTest(unittest.TestCase):
         self.assertTrue(report.analyses[0].evidence_links)
         self.assertEqual(report.analyses[0].evidence_links[0]["source_id"], "finmind")
 
+    def test_saved_non_custom_settings_drop_legacy_symbols(self) -> None:
+        request = self.service._request_from_settings(
+            {
+                "symbols": ["2330.TW", "2454.TW"],
+                "market_universe": "semiconductor",
+                "market_universes": ["semiconductor", "electronics"],
+            }
+        )
+
+        self.assertEqual(request.symbols, [])
+        normalized = self.service._settings_from_request(request)
+        self.assertEqual(normalized["symbols"], [])
+
+    def test_custom_settings_keep_explicit_symbols(self) -> None:
+        request = self.service._request_from_settings(
+            {
+                "symbols": "2330.TW, 2454.TW",
+                "market_universe": "custom",
+                "market_universes": ["custom"],
+            }
+        )
+
+        self.assertEqual(request.symbols, ["2330.TW", "2454.TW"])
+        normalized = self.service._settings_from_request(request)
+        self.assertEqual(normalized["symbols"], ["2330.TW", "2454.TW"])
+
     def test_backend_universe_selection_without_symbols(self) -> None:
         request = PotentialStockRequest(market_universe="financial", use_live_data=False)
         symbols = self.service._symbols_for_request(request)
@@ -1784,7 +1810,7 @@ class PotentialStockApiTest(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             payload = response.json()
-            self.assertEqual(payload["settings"]["symbols"], ["2330.TW", "2454.TW"])
+            self.assertEqual(payload["settings"]["symbols"], [])
             self.assertEqual(payload["settings"]["initial_capital"], 3_000_000)
             self.assertEqual(payload["settings"]["max_positions"], 4)
 
